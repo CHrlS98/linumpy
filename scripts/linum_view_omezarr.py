@@ -33,14 +33,16 @@ def main():
     # Prepare the viewer
     viewer = napari.Viewer()
     layers = viewer.open(zarr_location, plugin="napari-ome-zarr")
-    layers[0].colormap = "magma"
     viewer.scale_bar.visible = True
     viewer.scale_bar.unit = "mm"
 
     # Set the color limits
     imin = max(root[n_scales-1][:].min(), 0)
     imax = np.percentile(root[n_scales-1][:], 99.9)
-    layers[0].contrast_limits = [imin, imax]
+
+    for l in layers:
+        l.colormap = "magma"
+        l.contrast_limits = [imin, imax]
 
     # Run the viewer
     napari.run()
