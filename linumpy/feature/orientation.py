@@ -1,15 +1,32 @@
 # -*- coding:utf8 -*-
+import logging
 from functools import partial
 from itertools import product
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import os
 
+from dipy.data import get_sphere
+from dipy.reconst.shm import sh_to_sf_matrix, sph_harm_ind_list
+from scipy.special import eval_legendre
 from scipy.ndimage import correlate
 import numpy as np
 from tqdm import tqdm
-from linumpy.io.zarr import create_directory
 import zarr
-import dask.array as da
+
+
+G_RESPONSE_KEY = "G_RESPONSE"
+H_RESPONSE_KEY = "H_RESPONSE"
+Q_RESPONSE_KEY = "Q_RESPONSE"
+G_FILTERED_BASE_KEY = "G"
+H_FILTERED_BASE_KEY = "H"
+ODF_SH_KEY = "ODF_SH"
+
+
+def G_key(idx):
+    return f"{G_FILTERED_BASE_KEY}_{idx}"
+
+
+def H_key(idx):
+    return f"{H_FILTERED_BASE_KEY}_{idx}"
 
 
 def _gaussian_1d(r):
@@ -80,27 +97,49 @@ def convolve_with_bank(image, filter_bank, norm=1.0, mode='reflect'):
     return out
 
 
-def _data_to_mmap(data, dir, fname, datatype):
-    data_fp = np.memmap(os.path.join(dir, fname), dtype=datatype,
-                        mode='w+', shape=data.shape)
-    data_fp[:] = data.astype(datatype)[:]
-    data_fp.flush()
-    return data_fp
-
-
 class Steerable4thOrderGaussianQuadratureFilter():
-    def __init__(self, image, R, store_path, mode='reflect'):
-        argtol = 3.0  # np.sqrt(-np.log(rtol))
-        samples = np.linspace(0, argtol, R+1)
+    """
+    Steerable 4th-order derivative of Gaussian Quadrature filters.
+
+    :type image: numpy ndarray
+    :param image: Input image to process.
+    :type halfwidth: int
+    :param halfwidth: Half-width of filtering kernel.
+    :type sphere_name: str
+    :param sphere_name: Name of DIPY sphere defining sampled directions.
+    :type sh_order_max: int > 0, even
+    :param sh_order_max:
+        Maximum order for projecting filter amplitudes to SH coefficients.
+    :type mode: str
+    :param mode:
+        Padding mode for convolution. One of: `reflect`, `constant`,
+        `nearest`, `mirror` or `wrap`.
+    :type chunk_shape: tuple of 4 int
+    :param chunk_shape: Chunk shape for processing and saving data.
+    :type num_processes: int
+    :param num_processes: Number of processes.
+    """
+    def __init__(self, image, halfwidth, sphere_name, sh_order_max,
+                 mode, chunk_shape, num_processes):
+        argtol = 3.0
+        samples = np.linspace(0, argtol, halfwidth+1)
         samples = np.append(-samples[:0:-1], samples)
         self.image_shape = image.shape
         self.samples = samples
+        self.n_coeffs = int((sh_order_max + 2) * (sh_order_max + 1)) / 2
+        _, l = sph_harm_ind_list(sh_order_max)
+        self.FRT = np.diag(2.0*np.pi*eval_legendre(l, 0))
+
+        sphere = get_sphere(sphere_name)
+        _, self.b_inv = sh_to_sf_matrix(sphere, sh_order_max)
+        self.directions = sphere.vertices
+        self.num_processes = num_processes
 
         # additional normalization constant to generate 0-area-under-curve G filters
         self._C_forGFilters = 4.0*np.sqrt(210)/(105*np.sqrt(np.pi))
 
         self._N_2Dto3D = np.float_power(2.0/np.pi, 0.25).astype(np.float64)
-        self._sampling_delta = np.float_power(argtol / R, 3)
+        self._sampling_delta = np.float_power(argtol / halfwidth, 3)
 
         self._g4_funcs_list = [
             self._g4a, self._g4b, self._g4c, self._g4d, self._g4e, self._g4f,
@@ -117,141 +156,149 @@ class Steerable4thOrderGaussianQuadratureFilter():
         self._g4_kappas = []
         self._h4_kappas = []
 
-        self.is_g_response_computed = False
-        self.is_h_response_computed = False
-
-        create_directory(store_path, overwrite=True)
-        self.zarr_store = zarr.DirectoryStore(path=store_path)
+        # store intermediate files in temp zarr file
+        self.zarr_store = zarr.TempStore()
         self.zarr_root = zarr.open(self.zarr_store, mode='w')
 
-        self.chunkshape = (80, 80, 80)
-        self.blocks_dims = (int(float(image.shape[0]) / self.chunkshape[0] + 0.5),
-                            int(float(image.shape[1]) / self.chunkshape[1] + 0.5),
-                            int(float(image.shape[2]) / self.chunkshape[2] + 0.5))
-        print(self.blocks_dims)
+        self.chunkshape = chunk_shape
+        self.n_chunks = [
+            np.ceil(float(image.shape[i]) / self.chunkshape[i]).astype(int)
+            for i in range(3)
+        ]
 
+        # TODO: Process in chunks (handle edge effects)
+        # TODO: Move processing to compute_odf_sh method
         for it, _g_func in enumerate(tqdm(self._g4_funcs_list)):
             _kappa, _filters = _g_func(samples)
             self._g4_kappas.append(_kappa)
-            data = convolve_with_bank(image, _filters, self._N_2Dto3D * self._sampling_delta, mode)
-            self.zarr_root.array(f'g4_{it}', data[..., None],
-                                 chunks=self.chunkshape + (1,),
+            data = convolve_with_bank(
+                image, _filters, self._N_2Dto3D * self._sampling_delta, mode)
+            self.zarr_root.array(G_key(it), data[..., None],
+                                 chunks=self.chunkshape[:3] + (1,),
                                  dtype=np.float32,
                                  write_empty_chunks=False)
 
         for it, _h_func in enumerate(tqdm(self._h4_funcs_list)):
             _kappa, _filters = _h_func(samples)
             self._h4_kappas.append(_kappa)
-            data = convolve_with_bank(image, _filters, self._N_2Dto3D * self._sampling_delta, mode)
-            self.zarr_root.array(f'h4_{it}', data[..., None],
-                                 chunks=self.chunkshape + (1,),
+            data = convolve_with_bank(
+                image, _filters, self._N_2Dto3D * self._sampling_delta, mode)
+            self.zarr_root.array(H_key(it), data[..., None],
+                                 chunks=self.chunkshape[:3] + (1,),
                                  dtype=np.float32,
                                  write_empty_chunks=False)
 
-    def compute_quadrature_output(self, directions):
-        print('Compute quadrature response')
-        out_zarr = self.zarr_root.zeros('q_response', shape=self.image_shape + (len(directions),),
-                                        chunks=self.chunkshape + (10,), dtype=np.float32)
+    def compute_odf_sh(self):
+        """
+        Compute ODF from precomputed bank of images.
 
-        if not self.is_g_response_computed:
-            self.compute_G_response(directions)
-        if not self.is_h_response_computed:
-            self.compute_H_response(directions)
+        :type out_zarr: zarr array
+        :return out_zarr: Zarr array containing SH coefficients.
+        """
+        logging.info('Compute quadrature response')
+        self.zarr_root.zeros(Q_RESPONSE_KEY,
+                             shape=self.image_shape + (len(self.directions),),
+                             chunks=self.chunkshape, dtype=np.float32)
+        out_zarr = self.zarr_root.zeros(ODF_SH_KEY,
+                                        shape=self.image_shape + (self.n_coeffs,),
+                                        chunks=self.chunkshape, dtype=np.float32)
+
+        self._compute_G_response()
+        self._compute_H_response()
 
         futures = []
-        with ProcessPoolExecutor(max_workers=18) as executor:
-            for (i, j, k) in product(*[range(_i) for _i in self.blocks_dims]):
-                futures.append(executor.submit(self.quadrature_response, i, j, k))
+        with ProcessPoolExecutor(max_workers=self.num_processes) as executor:
+            for (i, j, k) in product(*[range(_i) for _i in self.n_chunks]):
+                futures.append(executor.submit(self._sh_from_quadrature_response, i, j, k))
             for f in as_completed(futures):
                 f.result()  # this step for throwing exceptions in main thread
-
-        print('done.')
         return out_zarr
 
-    def compute_G_response(self, directions):
-        out_zarr = self.zarr_root.zeros('g_response', shape=self.image_shape + (len(directions),),
-                                        chunks=self.chunkshape + (10,), dtype=np.float32)
+    def _compute_G_response(self):
+        out_zarr = self.zarr_root.zeros(G_RESPONSE_KEY,
+                                        shape=self.image_shape + (len(self.directions),),
+                                        chunks=self.chunkshape, dtype=np.float32)
 
-        print('Interpolate feature maps for G response')
+        logging.info('Interpolate feature maps for G response')
         # Interpolate feature maps in blocks
         for it, _kappa in enumerate(tqdm(self._g4_kappas)):
-            alpha = directions[:, 0]
-            beta = directions[:, 1]
-            gamma = directions[:, 2]
-            with ProcessPoolExecutor(max_workers=18) as executor:
+            alpha = self.directions[:, 0]
+            beta = self.directions[:, 1]
+            gamma = self.directions[:, 2]
+            with ProcessPoolExecutor(max_workers=self.num_processes) as executor:
                 futures = {}
-                for (i, j, k) in product(*[range(_i) for _i in self.blocks_dims]):
+                for (i, j, k) in product(*[range(_i) for _i in self.n_chunks]):
                     futures[executor.submit(
-                        self.add_response, 'g',
-                        _kappa(alpha, beta, gamma),
-                        it, i, j, k)] = (i, j, k)
+                        self._add_response, G_RESPONSE_KEY, G_key(it),
+                        _kappa(alpha, beta, gamma), i, j, k)] = (i, j, k)
                 for f in as_completed(futures):
                     f.result()
 
         # Square the resulting image
-        with ProcessPoolExecutor(max_workers=18) as executor:
+        with ProcessPoolExecutor(max_workers=self.num_processes) as executor:
                 futures = {}
-                for (i, j, k) in product(*[range(_i) for _i in self.blocks_dims]):
+                for (i, j, k) in product(*[range(_i) for _i in self.n_chunks]):
                     futures[executor.submit(
-                        self.square_response,
-                        'g', i, j, k)] = (i, j, k)
+                        self._square_response, G_RESPONSE_KEY, i, j, k)] = (i, j, k)
                 for f in as_completed(futures):
                     f.result()
 
-        self.is_g_response_computed = True
         # output zarr image
         return out_zarr
 
-    def compute_H_response(self, directions):
-        out_zarr = self.zarr_root.zeros('h_response', shape=self.image_shape + (len(directions),),
-                                        chunks=self.chunkshape + (10,), dtype=np.float32)
+    def _compute_H_response(self):
+        out_zarr = self.zarr_root.zeros(H_RESPONSE_KEY,
+                                        shape=self.image_shape + (len(self.directions),),
+                                        chunks=self.chunkshape, dtype=np.float32)
 
-        print('Interpolate feature maps for H response')
+        logging.info('Interpolate feature maps for H response')
         # Interpolate feature maps in blocks
         for it, _kappa in enumerate(tqdm(self._h4_kappas)):
-            alpha = directions[:, 0]
-            beta = directions[:, 1]
-            gamma = directions[:, 2]
-            with ProcessPoolExecutor(max_workers=18) as executor:
+            alpha = self.directions[:, 0]
+            beta = self.directions[:, 1]
+            gamma = self.directions[:, 2]
+            with ProcessPoolExecutor(max_workers=self.num_processes) as executor:
                 futures = {}
-                for (i, j, k) in product(*[range(_i) for _i in self.blocks_dims]):
+                for (i, j, k) in product(*[range(_i) for _i in self.n_chunks]):
                     futures[executor.submit(
-                        self.add_response, 'h',
-                        _kappa(alpha, beta, gamma),
-                        it, i, j, k)] = (i, j, k)
+                        self._add_response, H_RESPONSE_KEY, H_key(it),
+                        _kappa(alpha, beta, gamma), i, j, k)] = (i, j, k)
                 for f in as_completed(futures):
                     f.result()
 
         # Square the resulting image
-        with ProcessPoolExecutor(max_workers=18) as executor:
+        with ProcessPoolExecutor(max_workers=self.num_processes) as executor:
                 futures = {}
-                for (i, j, k) in product(*[range(_i) for _i in self.blocks_dims]):
+                for (i, j, k) in product(*[range(_i) for _i in self.n_chunks]):
                     futures[executor.submit(
-                        self.square_response,
-                        'h', i, j, k)] = (i, j, k)
+                        self._square_response, H_RESPONSE_KEY, i, j, k)] = (i, j, k)
                 for _ in as_completed(futures):
                     f.result()
 
-        self.is_h_response_computed = True
         # output zarr image
         return out_zarr
 
-    def add_response(self, key, kappa_arr, it, i, j, k):
-        h_response = self.zarr_root[f'{key}_response']
-        h4_it = self.zarr_root[f'{key}4_{it}']
-        h_response.blocks[i, j, k] += kappa_arr * h4_it.blocks[i, j, k]
+    def _add_response(self, response_key, base_filtered_key, kappa_arr, i, j, k):
+        response = self.zarr_root[response_key]
+        base_image = self.zarr_root[base_filtered_key]
+        response.blocks[i, j, k] += kappa_arr * base_image.blocks[i, j, k]
 
-    def square_response(self, key, i, j, k):
-        h_response = self.zarr_root[f'{key}_response']
-        h_response.blocks[i, j, k] = h_response.blocks[i, j, k]**2
+    def _square_response(self, response_key, i, j, k):
+        response = self.zarr_root[response_key]
+        response.blocks[i, j, k] = response.blocks[i, j, k]**2
 
-    def quadrature_response(self, i, j, k):
-        g_response = self.zarr_root['g_response']
-        h_response = self.zarr_root['h_response']
-        q_response = self.zarr_root['q_response']
+    def _sh_from_quadrature_response(self, i, j, k):
+        g_response = self.zarr_root[G_RESPONSE_KEY]
+        h_response = self.zarr_root[H_RESPONSE_KEY]
+        q_response = self.zarr_root[Q_RESPONSE_KEY]
+        odf_sh = self.zarr_root[ODF_SH_KEY]
         q_response.blocks[i, j, k] =\
-            g_response.blocks[i, j, k] +\
-                h_response.blocks[i, j, k]
+            g_response.blocks[i, j, k] + h_response.blocks[i, j, k]
+
+        odf_sh.blocks[i, j, k] = np.asarray(
+            [e.dot(self.b_inv) for e in q_response.blocks[i, j, k]]
+        )
+        odf_sh.blocks[i, j, k] = odf_sh.blocks[i, j, k].dot(self.FRT)
 
     def _g4a(self, r):
         kappa = partial(_kappa_fct, pow_gamma=4)

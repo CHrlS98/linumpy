@@ -1,22 +1,54 @@
 import shutil
 from pathlib import Path
-from typing import List, Tuple, Any, Callable, Union
-from itertools import product
 from importlib.metadata import version
 
 import dask.array as da
-import numpy as np
 import zarr
-from numpy import ndarray
 from ome_zarr.dask_utils import resize as dask_resize
 from ome_zarr.io import parse_url
 from ome_zarr.scale import Scaler
-from ome_zarr.writer import write_multiscale, write_image
-from skimage.transform import resize, pyramid_gaussian
+from ome_zarr.writer import write_image
+from ome_zarr.reader import Reader, Multiscales
+from skimage.transform import resize
 
 """ 
     This file contains functions for working with zarr files
 """
+
+
+class CustomScaler(Scaler):
+    def resize_image(self, image):
+        """
+        Resize a numpy array OR a dask array to a smaller array (not pyramid)
+        """
+        if isinstance(image, da.Array):
+
+            def _resize(image, out_shape, **kwargs):
+                return dask_resize(image, out_shape, **kwargs)
+
+        else:
+            _resize = resize
+
+        # downsample in X, Y, and Z.
+        new_shape = list(image.shape)
+        new_shape[-1] = image.shape[-1] // self.downscale
+        new_shape[-2] = image.shape[-2] // self.downscale
+        new_shape[-3] = image.shape[-3] // self.downscale
+        out_shape = tuple(new_shape)
+
+        dtype = image.dtype
+        image = _resize(
+            image.astype(float), out_shape, order=1, mode="reflect", anti_aliasing=False
+        )
+        return image.astype(dtype)
+
+    def _by_plane(self, base, func):
+        # This method is called by base class when interpolation methods (e.g. nearest)
+        # directly. Because `write_image` never call these methods, we don't need to
+        # implement it here. We raise an error to make sure the CustomScaler class is not
+        # used for this purpose.
+        raise NotImplementedError("_by_plane method not implemented for CustomScaler")
+
 
 def create_transformation_dict(nlevels, ndims=3):
     """
@@ -27,7 +59,7 @@ def create_transformation_dict(nlevels, ndims=3):
     :return:
     """
     def _get_scale(level, ndims):
-        scale_def = [1.0, (2**level), (2**level), (2**level)]
+        scale_def = [1.0, (2.0**level), (2.0**level), (2.0**level)]
         offset = len(scale_def) - ndims
         return scale_def[offset:]
 
@@ -95,7 +127,7 @@ def save_zarr(data, store_path, scale, *,
     """
     # pyramidal decomposition (ome_zarr.scale.Scaler) keywords
     pyramid_kw = {"max_layer": n_levels,
-                  "method": "nearest",
+                  "method": "nearest",  # cannot be a value other than `nearest`
                   "downscale": 2}
     ndims = len(data.shape)
 
@@ -122,7 +154,7 @@ def save_zarr(data, store_path, scale, *,
         {"type":"scale", "scale": list(scale)}
     ]
     write_image(data, zarr_group, storage_options=dict(chunks=chunks),
-                scaler=Scaler(**pyramid_kw),
+                scaler=CustomScaler(**pyramid_kw),
                 axes=axes, coordinate_transformations=coordinate_transformations,
                 compute=True, metadata=metadata, type="gaussian",
                 coordinateTransformations=base_coord_transformation)
@@ -131,26 +163,13 @@ def save_zarr(data, store_path, scale, *,
     return zarr_group
 
 
-def temp_store_nifti_to_zarr(image, chunks, dtype=np.float32):
-    store = zarr.TempStore(dir=".")
-    zarr_group = zarr.open(store, mode='w')
-    zarr_array = zarr_group.zeros('0', shape=image.shape, chunks=chunks, dtype=dtype)
-
-    blocks_dims = (int(float(image.shape[0]) / chunks[0] + 0.5),
-                   int(float(image.shape[1]) / chunks[1] + 0.5),
-                   int(float(image.shape[2]) / chunks[2] + 0.5))
-    print(blocks_dims, chunks)
-    for (i, j, k) in product(*[range(_i) for _i in blocks_dims]):
-        print(i, j, k)
-        img_block = image.slicer[i*chunks[0]:min((i+1)*chunks[0], image.shape[0]),
-                                 j*chunks[1]:min((j+1)*chunks[1], image.shape[1]),
-                                 k*chunks[2]:min((k+1)*chunks[2], image.shape[2]),
-                                 ...]
-        print(img_block.shape)
-        data = img_block.get_fdata(dtype=dtype)
-        print('loaded nifti')
-        zarr_array[i*chunks[0]:min((i+1)*chunks[0], image.shape[0]),
-                   j*chunks[1]:min((j+1)*chunks[1], image.shape[1]),
-                   k*chunks[2]:min((k+1)*chunks[2], image.shape[2])] = data
-
-    return zarr_array
+def read_multiscale(zarr_path, mode='r'):
+    """
+    
+    """
+    root_location = parse_url(zarr_path, mode=mode)
+    r = Reader(root_location)
+    for node in r():
+        if Multiscales.matches(node.zarr):
+            return Multiscales(node)
+    raise ValueError(f'{zarr_path} does not contain multiscale data.')
