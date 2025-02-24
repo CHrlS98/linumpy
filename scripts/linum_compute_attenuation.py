@@ -13,6 +13,7 @@ from scipy.ndimage import gaussian_filter
 from linumpy.preproc.icorr import get_extendedAttenuation_Vermeer2013
 from linumpy.io.zarr import read_omezarr, save_zarr
 
+
 def _build_arg_parser():
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
@@ -41,10 +42,15 @@ def main():
 
     # Loading the data
     zarr_vol, res = read_omezarr(args.input, level=0)
-    vol = np.moveaxis(zarr_vol, (0, 1, 2), (2, 1, 0))
-    res_axial_microns = res[0] * 1000  # resolution is expected to be in microns
 
-    mask=None
+    # TODO: Change behaviour of attenuation estimation method
+    # to avoid having to swap the axes
+    vol = np.moveaxis(zarr_vol, (0, 1, 2), (2, 1, 0))
+
+    # resolution is expected to be in microns
+    res_axial_microns = res[0] * 1000
+
+    mask = None
     if args.mask is not None:
         mask_zarr, _ = read_omezarr(args.mask, level=0)
         mask = np.moveaxis(mask_zarr, (0, 1, 2), (2, 1, 0)).astype(bool)
