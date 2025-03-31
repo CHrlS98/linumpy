@@ -18,8 +18,10 @@ def _build_arg_parser():
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     p.add_argument("output",
                    help="Output nifti filename")
+    p.add_argument("resource", default='template', choices=["template", "labels"],
+                   help='Choose whether to download the template or labels [%(default)s].')
     p.add_argument("-r", "--resolution", default=100, type=int, choices=allen.AVAILABLE_RESOLUTIONS,
-                   help="Template resolution in micron. Default=%(default)s")
+                   help="Resolution in micron. Only available for template. Default=%(default)s")
 
     return p
 
@@ -39,7 +41,10 @@ def main():
     output.absolute()
     output.parent.mkdir(exist_ok=True, parents=True)
 
-    vol = allen.download_template(args.resolution, cache=True)
+    if args.resource == 'template':
+        vol = allen.download_template(args.resolution, cache=True)
+    else:
+        vol = allen.download_annotations(cache=True)
 
     # Preparing the affine to align the template in the RAS+
     r_mm = args.resolution / 1e3  # Convert the resolution from micron to mm

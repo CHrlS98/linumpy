@@ -55,3 +55,43 @@ def download_template(resolution: int, cache: bool = True, cache_dir: str = ".da
         nrrd_file.unlink()  # Removes the nrrd file
 
     return vol
+
+
+def download_annotations(cache: bool = True, cache_dir: str = ".data/"):
+    """Download the Allen mouse brain annotations at 10 microns
+    Parameters
+    ----------
+    cache
+        Keep the downloaded volume in cache
+    cache_dir
+        Cache directory
+    Returns
+    -------
+    Allen average mouse brain.
+    """
+    # Preparing the cache directory
+    output = Path(cache_dir)
+    output.mkdir(exist_ok=True, parents=True)
+
+    # Preparing the filenames
+    nrrd_file = output / f"allen_annotations_10um.nrrd"
+
+    # Preparing the request
+    url = f"https://download.alleninstitute.org/informatics-archive/current-release/mouse_ccf/annotation/ccf_2022/compacted/annotation_10.nrrd"
+
+    # Check that the data is in cache
+    if not (nrrd_file.is_file()):
+        # Download the template
+        response = requests.get(url, stream=True)
+        with open(nrrd_file, "wb") as f:
+            for data in tqdm(response.iter_content()):
+                f.write(data)
+
+    # Loading the nrrd file
+    vol = sitk.ReadImage(str(nrrd_file))
+
+    # Remove the file from cache
+    if not cache:
+        nrrd_file.unlink()  # Removes the nrrd file
+
+    return vol

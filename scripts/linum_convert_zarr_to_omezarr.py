@@ -6,7 +6,7 @@
 import argparse
 
 import zarr
-
+import dask.array as da
 from linumpy.io.zarr import save_zarr
 from pathlib import Path
 
@@ -20,6 +20,9 @@ def _build_arg_parser():
                    help="Full path to the output ome-zarr file (.ome-zarr)")
     p.add_argument("-r", "--resolution", nargs="+", type=float, default=[1.0],
                    help="Resolution of the image in microns. (default=%(default)s)")
+    p.add_argument('--nlevels', type=int, default=5,
+                   help="Number of levels for pyramidal decomposition "
+                        "(0 = no decomposition). [%(default)s]")
 
     return p
 
@@ -44,7 +47,9 @@ def main():
         scales = [r * 1e-3 for r in resolution]
 
     foo = zarr.open(input_file, mode="r")
-    save_zarr(foo, output_file, scales=scales, overwrite=True)
+    dask_arr = da.from_zarr(foo)
+    save_zarr(dask_arr, output_file, scales=scales,
+              chunks=foo.chunks, overwrite=True)
 
 
 if __name__ == "__main__":

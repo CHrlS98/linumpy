@@ -43,8 +43,8 @@ def main():
     output_volume = Path(args.output_volume)
 
     # Check the extension
-    assert input_volume.suffix in [".nii", ".nii.gz"], "The input volume must be a .nii or .nii.gz file."
-    assert output_volume.suffix in [".nii", ".nii.gz"], "The output volume must be a .nii or .nii.gz file."
+    assert input_volume.suffix in [".nii", ".gz"], "The input volume must be a .nii or .nii.gz file."
+    assert output_volume.suffix in [".nii", ".gz"], "The output volume must be a .nii or .nii.gz file."
 
     # Control points position in pixel (ex: from Fiji)
     pos_anterior = args.pos_anterior
