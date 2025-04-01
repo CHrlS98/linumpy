@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""
+Crop 3D tomography volume to remove water voxels (above the brain)
+and heavily attenuated voxels below the brain surface.
+"""
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,7 +12,8 @@ import zarr
 import dask.array as da
 
 def _build_arg_parser():
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawTextHelpFormatter)
     p.add_argument('in_volume',
                    help='Input volume in omezarr format.')
     p.add_argument('out_masked')
