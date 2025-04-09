@@ -46,7 +46,7 @@ def main():
         parser.error('Output file exists, use option -f to overwrite.')
     else:
         path, _ = os.path.split(args.out_result)
-        if not os.path.exists(path):
+        if len(path) > 0 and not os.path.exists(path):
             os.makedirs(path)
 
     custom_ranges = None

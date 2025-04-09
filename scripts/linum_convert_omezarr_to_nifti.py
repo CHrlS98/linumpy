@@ -24,7 +24,9 @@ def _build_arg_parser():
     p.add_argument("output",
                    help="Full path to the output nifti file")
     p.add_argument("-r", "--resolution", type=float, default=10.0,
-                   help="Output resolution in micron (default=%(default)s)")
+                   help="Output resolution in micron [%(default)s].")
+    p.add_argument("--interpolation", choices=['nearest', 'linear'], default='linear',
+                   help='Interpolation method [%(default)s].')
     p.add_argument("-i", "--isotropic", action="store_true",
                    help="Interpolate the volume to isotropic resolution")
     return p
@@ -36,7 +38,6 @@ def main():
     args = p.parse_args()
 
     # Load the ome-zarr volume and choose the scale
-    # reader = Reader(parse_url(args.input))
     vol, zarr_resolution = read_omezarr(args.input)
 
     # Set the scaling factor
@@ -65,7 +66,12 @@ def main():
     sampler.SetSize(new_shape)
     sampler.SetOutputSpacing(new_spacing)
     sampler.SetOutputPixelType(sitk.sitkFloat32)
-    sampler.SetInterpolator(sitk.sitkLinear)
+    if args.interpolation == 'linear':
+        sampler.SetInterpolator(sitk.sitkLinear)
+    elif args.interpolation == 'nearest':
+        sampler.SetInterpolator(sitk.sitkNearestNeighbor)
+    else:
+        p.error(f'Unknown interpolation method: {args.interpolation}.')
     sampler.SetDefaultPixelValue(0)
     warped = sampler.Execute(input_volume)
 

@@ -26,8 +26,7 @@ def main():
     for zi in tqdm(range(in_zarr.shape[0])):
         im = in_zarr[zi]
         sitk.WriteImage(sitk.GetImageFromArray(im.astype(np.float32)),
-                        os.path.join(args.out_directory,
-                                     f'{args.prefix}_{zi}.tiff'),
+                        os.path.join(args.out_directory, f'{args.prefix}_{zi}.tiff'),
                         useCompression=False, imageIO='TIFFImageIO')
 
 

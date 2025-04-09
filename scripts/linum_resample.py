@@ -18,13 +18,17 @@ def _build_arg_parser():
                    help="Full path to the output nifti volume (must be .nii or .nii.gz)")
     p.add_argument("resolution", type=float, default=25.0,
                      help="Output resolution in micron (default=%(default)s)")
+    p.add_argument("--header_is_mm", action='store_true',
+                   help="Specify whether the nifti header is in mm. Else, microns is assumed.")
+    p.add_argument("--interpolation", default='linear', choices=['linear', 'nearest'],
+                   help='Interpolation mode. [%(default)s]')
 
     return p
 
 def main():
     # Parse arguments
-    p = _build_arg_parser()
-    args = p.parse_args()
+    parser = _build_arg_parser()
+    args = parser.parse_args()
 
     # Parameters
     input_volume = Path(args.input_volume)
@@ -35,7 +39,10 @@ def main():
     elif output_volume.name.endswith(".nii.gz"):
         extension = ".nii.gz"
     assert extension in [".nii", ".nii.gz"], "The output file must be a .nii or .nii.gz file."
-    resolution = args.resolution / 1000.0 # Resolution in mm
+
+    resolution = args.resolution
+    if args.header_is_mm:
+        resolution /= 1000.0 # Resolution in mm
 
     # Load the nifti volume
     vol = sitk.ReadImage(str(input_volume))
@@ -60,7 +67,12 @@ def main():
     sampler.SetOutputDirection(vol.GetDirection())
     sampler.SetOutputSpacing(new_spacing)
     sampler.SetOutputPixelType(sitk.sitkFloat32)
-    sampler.SetInterpolator(sitk.sitkLinear)
+    if args.interpolation == 'linear':
+        sampler.SetInterpolator(sitk.sitkLinear)
+    elif args.interpolation == 'nearest':
+        sampler.SetInterpolator(sitk.sitkNearestNeighbor)
+    else:
+        parser.error(f'Unknown option for interpolation: {args.interpolation}')
     sampler.SetDefaultPixelValue(0)
     warped = sampler.Execute(vol)
 
