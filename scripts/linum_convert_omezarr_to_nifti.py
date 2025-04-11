@@ -8,12 +8,7 @@ from pathlib import Path
 
 import SimpleITK as sitk
 import numpy as np
-from ome_zarr.io import parse_url
-from ome_zarr.reader import Reader
 from linumpy.io.zarr import read_omezarr
-
-
-# TODO: Read the units (mm, micron, etc) from the zarr file metadata
 
 
 def _build_arg_parser():
