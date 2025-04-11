@@ -12,7 +12,6 @@ params.output = "results";
 params.resolution = 100; // Resolution of the reconstruction in micron/pixel
 params.syn_quick = false;
 
-// Processes
 process mirror_image {
     input:
         tuple val(sub_id), path(image)
@@ -43,10 +42,11 @@ process register_to_self {
     script:
     """
     if [ $params.syn_quick ]; then
-        antsRegistrationSyNQuick.sh -d 3 -f $original -m $mirror -o ${sub_id}__mirror_to_self_
+        COMMAND=antsRegistrationSyNQuick.sh
     else
-        antsRegistrationSyN.sh -d 3 -f $original -m $mirror -o ${sub_id}__mirror_to_self_
+        COMMAND=antsRegistrationSyN.sh
     fi
+    \$COMMAND -d 3 -t a -f $original -m $mirror -o ${sub_id}__mirror_to_self_
     """
 }
 
@@ -70,18 +70,19 @@ process register_average {
         tuple val(sub_id), path("${sub_id}_register_avg_Warped.nii.gz")
     script:
     """
-    antsRegistration -d 3 -o [${sub_id}_register_avg_,${sub_id}_register_avg_Warped.nii.gz,${sub_id}_register_avg_invWarped.nii.gz] -m MI[${fixed},${moving},1.0,128,None,1,1] -t Affine[0.1] -c 50x50x200x500 -s 8x4x2x1 -f 16x8x4x1 -m MI[${fixed},${moving},1.0,128,None,1,1] -t SyN[0.00001] -c 50x100x400x500 -s 8x4x2x1 -f 16x8x4x1 -v -w [0.01,0.99]
+    antsRegistration -d 3 -o [${sub_id}_register_avg_,${sub_id}_register_avg_Warped.nii.gz,${sub_id}_register_avg_invWarped.nii.gz] -m MI[${fixed},${moving},1.0,64,None,1,1] -t Rigid[0.01] -c 50x50x200x500 -s 8x4x2x1 -f 16x8x4x1 -m MI[${fixed},${moving},1.0,128,None,1,1] -t Affine[0.01] -c 50x50x200x500 -s 8x4x2x1 -f 16x8x4x1 -m MI[${fixed},${moving},1.0,256,None,1,1] -t SyN[0.000001] -c 50x50x500x1000 -s 8x4x2x1 -f 16x8x4x1 -v -w [0.01,0.99]
     """
 }
 
-process mega_maximum {
+process mega_mean {
+    publishDir "${params.output}/${task.process}"
     input:
-        path "sub_"
+        path "sub_?.nii.gz"
     output:
-        path "mega_max.nii.gz"
+        path "mega_mean.nii.gz"
     script:
     """
-    
+    linum_average_volumes.py --in_volumes sub_* --out_volume "mega_mean.nii.gz" --mode mean
     """
 }
 
@@ -103,5 +104,12 @@ workflow {
         .filter{it -> it[1] != it[2]}
 
     register_average(average_for_template)
+
+    megamax_input = average.out.first()
+    .flatMap{it -> it[1]}
+    .concat(register_average.out.flatMap{ it -> it[1] })
+    .collect()
+
+    mega_mean(megamax_input)
 }
 
