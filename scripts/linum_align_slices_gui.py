@@ -10,6 +10,7 @@ resulting transformations are saved as soon as the window is closed.
 """
 import argparse
 import zarr
+import nibabel as nib
 import numpy as np
 import os
 from linumpy.stitching.manual_registration import ManualImageCorrection
@@ -18,14 +19,16 @@ from linumpy.stitching.manual_registration import ManualImageCorrection
 def _build_arg_parser():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawTextHelpFormatter)
-    p.add_argument('in_zarr',
-                   help='Input zarr file to align.')
+    p.add_argument('input',
+                   help='Input file to align (nifti or zarr).')
     p.add_argument('resolution', nargs=3, type=float,
                    help='Voxel size in microns.')
     p.add_argument('out_result',
                    help='Output result file in .npz format.')
     p.add_argument('--downsample_factor', type=int, default=8,
                    help='Downsample factor for rendering whole resolution image [%(default)s].')
+    p.add_argument('--axis', default=0, type=int,
+                   help='Axis of rotation.')
     p.add_argument('--checkpoint_file',
                    help='Result file (.npz) to use as initial parameters.')
     p.add_argument('-f', dest='overwrite', action='store_true',
@@ -36,7 +39,15 @@ def _build_arg_parser():
 def main():
     parser = _build_arg_parser()
     args = parser.parse_args()
-    in_zarr = zarr.open(args.in_zarr, mode='r')
+
+    if '.zarr' in args.input:
+        in_zarr = zarr.open(args.input, mode='r')
+        data = np.asarray(in_zarr)
+    elif '.nii' in args.input:
+        im = nib.load(args.input)
+        data = im.get_fdata()
+    data = np.swapaxes(data, 0, args.axis)
+
     _, ext = os.path.splitext(args.out_result)
     if not ext not in ['', 'npz']:
         parser.error('Invalid extension for output result. '
@@ -57,7 +68,7 @@ def main():
         transforms = checkpoint['transforms']
 
     image_registration = ManualImageCorrection(
-        np.asarray(in_zarr), args.resolution,
+        data, args.resolution,
         args.downsample_factor, transforms,
         custom_ranges)
 

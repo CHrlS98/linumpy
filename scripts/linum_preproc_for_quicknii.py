@@ -92,8 +92,7 @@ def main():
     for it in range(in_zarr.shape[0]):
         image = in_zarr[it]
         if not args.disable_betcrop:
-            mask = process_slice_otsu(image, sigma=4.0,
-                                    win_size=win_size)
+            mask = process_slice_otsu(image, sigma=4.0, win_size=win_size)
             nonzero_rows, nonzero_cols = np.nonzero(mask)
             row_min, row_max = np.min(nonzero_rows), np.max(nonzero_rows)
             col_min, col_max = np.min(nonzero_cols), np.max(nonzero_cols)

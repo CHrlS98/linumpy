@@ -77,15 +77,15 @@ class ManualImageCorrection():
         # intensities will always be displayed between (0, 1)
         aspect_a = resolution[0] / resolution[2]
         self.axim_a = axs[0].imshow(self.get_view_a(), aspect=aspect_a,
-                                    vmin=0.0, vmax=1.0,
+                                    vmin=0.0, vmax=1.0, origin='lower',
                                     interpolation='nearest', cmap='magma')
         aspect_b = resolution[0] / resolution[1]
         self.axim_b = axs[1].imshow(self.get_view_b(), aspect=1.0/aspect_b,
-                                    vmin=0.0, vmax=1.0,
+                                    vmin=0.0, vmax=1.0, origin='lower',
                                     interpolation='nearest', cmap='magma')
         aspect_c = resolution[1] / resolution[2]
         self.axim_c = axs[2].imshow(self.get_view_c(), aspect=aspect_c,
-                                    vmin=0.0, vmax=1.0,
+                                    vmin=0.0, vmax=1.0, origin='lower',
                                     interpolation='nearest', cmap='magma')
         axs[0].set_axis_off()
         axs[1].set_axis_off()
@@ -243,6 +243,7 @@ class ManualImageCorrection():
         transformed_coords = self.transform_coordinates(view_coords)
         data = self.apply_scaling(self.image_interpolator(transformed_coords))
         data = self.draw_cursor(data)
+
         return data
 
     def get_view_b(self):
@@ -257,7 +258,7 @@ class ManualImageCorrection():
         view_coords = self.grid_coordinates[self.current_z, ::self.downsample, ::self.downsample, :]
         transformed_coords = self.transform_coordinates(view_coords, self.current_z)
         data_view = self.apply_scaling(self.image_interpolator(transformed_coords),
-                                       self.current_z)
+                                       self.current_z).T
 
         data_rgb = np.zeros(data_view.shape + (3,))
         data_rgb[..., :] = data_view[..., None]
@@ -268,7 +269,7 @@ class ManualImageCorrection():
                 ref_coords = self.grid_coordinates[ref_z, ::self.downsample, ::self.downsample, :]
                 transformed_ref_coords = self.transform_coordinates(ref_coords, ref_z)
                 data_ref = self.apply_scaling(self.image_interpolator(transformed_ref_coords),
-                                              self.current_z)
+                                              self.current_z).T
                 data_rgb[..., 0] = data_ref
         return np.clip(data_rgb, 0.0, 1.0)
 
@@ -358,11 +359,10 @@ def apply_scaling(data, vmin, vmax):
     return data
 
 
-def transform_and_rescale_slice(slice, ty, tx, theta, vmin, vmax):
+def transform_slice(slice, ty, tx, theta):
     """
-    Transform and rescale 2D slice. Transform consists of a translation
-    (ty, tx) and a rotation theta. Rescaling clips intensities to (vmin, vmax)
-    and rescales the resulting values to the range (0, 1).
+    Transform  2D slice.
+    Transform consists of a translation (ty, tx) and a rotation theta.
 
     Parameters
     ----------
@@ -374,10 +374,6 @@ def transform_and_rescale_slice(slice, ty, tx, theta, vmin, vmax):
         Translation along x axis (second axis).
     theta: float
         Rotation in radians.
-    vmin: float
-        Minimum value for rescaling.
-    vmax: float
-        Maximum value for rescaling.
 
     Returns
     -------
@@ -392,7 +388,5 @@ def transform_and_rescale_slice(slice, ty, tx, theta, vmin, vmax):
     # transform coordinates
     transformed_coordinates = apply_transform(ty, tx, theta, grid_coordinates[0])
     transformed_image = image_interpolator(transformed_coordinates[..., 1:])
-    # rescale intensities
-    transformed_image = apply_scaling(transformed_image, vmin, vmax)
 
     return transformed_image

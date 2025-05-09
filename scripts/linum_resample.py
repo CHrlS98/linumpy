@@ -16,7 +16,7 @@ def _build_arg_parser():
                    help="Full path to a nifti volume.")
     p.add_argument("output_volume", default=None,
                    help="Full path to the output nifti volume (must be .nii or .nii.gz)")
-    p.add_argument("resolution", type=float, default=25.0,
+    p.add_argument("resolution", type=float, nargs='+', default=25.0,
                      help="Output resolution in micron (default=%(default)s)")
     p.add_argument("--header_is_mm", action='store_true',
                    help="Specify whether the nifti header is in mm. Else, microns is assumed.")
@@ -47,18 +47,25 @@ def main():
     # Load the nifti volume
     vol = sitk.ReadImage(str(input_volume))
 
+    if len(args.resolution) == 1:
+        resolution = (args.resolution[0],) * 3
+    elif len(args.resolution) == 3:
+        resolution = tuple(args.resolution)
+    else:
+        parser.error("Resolution must be a single value or three values (x, y, z).")
+
     # Set the scaling factor
     transform = np.eye(3)
-    transform[0, 0] = resolution / vol.GetSpacing()[0]
-    transform[1, 1] = resolution / vol.GetSpacing()[1]
-    transform[2, 2] = resolution / vol.GetSpacing()[2]
+    transform[0, 0] = resolution[0] / vol.GetSpacing()[0]
+    transform[1, 1] = resolution[1] / vol.GetSpacing()[1]
+    transform[2, 2] = resolution[2] / vol.GetSpacing()[2]
 
     # Compute the output volume shape
     old_shape = vol.GetSize()
     new_shape = (int(old_shape[0] / transform[0, 0]),
                  int(old_shape[1] / transform[1, 1]),
                  int(old_shape[2] / transform[2, 2]))
-    new_spacing = (resolution, resolution, resolution)
+    new_spacing = resolution
 
     # Create the sampler
     sampler = sitk.ResampleImageFilter()
@@ -72,7 +79,7 @@ def main():
     elif args.interpolation == 'nearest':
         sampler.SetInterpolator(sitk.sitkNearestNeighbor)
     else:
-        parser.error(f'Unknown option for interpolation: {args.interpolation}')
+        parser.error(f'Unknown option for interpolation: {args.interpolation}')
     sampler.SetDefaultPixelValue(0)
     warped = sampler.Execute(vol)
 
