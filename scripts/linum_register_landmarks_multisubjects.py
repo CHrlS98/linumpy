@@ -214,7 +214,7 @@ def main():
     target_cc_a = np.mean(target_cc_a, axis=0) - mean_ac_voxum[:3]
     target_cc_p = np.mean(target_cc_p, axis=0) - mean_ac_voxum[:3]
 
-    # todo: Rotate around AC
+    # Rotate around AC
     for imreg_item in image_registration_items:
         origin_cc_a = imreg_item.cc_a_world_homogeneous[:3]
         origin_cc_p = imreg_item.cc_p_world_homogeneous[:3]
