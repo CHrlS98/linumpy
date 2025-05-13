@@ -124,13 +124,28 @@ process compensate_attenuation {
     """
 }
 
+process estimate_xy_shifts_from_metadata {
+    input:
+        path(input_dir)
+    output:
+        path("shifts_xy.csv")
+    script:
+    """
+    linum_estimate_xyShift_fromMetadata.py ${input_dir} shifts_xy.csv
+    """
+}
+
 workflow {
     inputSlices = Channel.fromPath("$params.inputDir/tile_x*_y*_z*/", type: 'dir')
                          .map{path -> tuple(path.toString().substring(path.toString().length() - 2), path)}
                          .groupTuple()
+    input_dir_channel = Channel.fromPath("$params.inputDir", type: 'dir')
 
     // Generate a 3D mosaic grid.
     create_mosaic_grid(inputSlices)
+
+    // Estimate XY shifts from metadata
+    estimate_xy_shifts_from_metadata(input_dir_channel)
 
     // Focal plane curvature compensation
     fix_focal_curvature(create_mosaic_grid.out)
