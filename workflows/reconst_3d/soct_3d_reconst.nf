@@ -125,6 +125,7 @@ process compensate_attenuation {
 }
 
 process estimate_xy_shifts_from_metadata {
+    publishDir "$params.outputDir/$task.process"
     input:
         path(input_dir)
     output:
