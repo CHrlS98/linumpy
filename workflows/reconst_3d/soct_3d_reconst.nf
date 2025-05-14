@@ -183,6 +183,8 @@ workflow {
     // Slices stitching
     stack_in_channel = stitch_3d.out
         .toSortedList{a, b -> a[0] <=> b[0]}
+        .collect()
+        .collate(2)
         .map{_meta, filename -> filename}
         .join(estimate_xy_shifts_from_metadata.out)
     stack_in_channel.view()
