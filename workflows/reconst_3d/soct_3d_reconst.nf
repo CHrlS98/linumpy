@@ -140,14 +140,14 @@ process estimate_xy_shifts_from_metadata {
 process stack_mosaics_into_3d_volume {
     publishDir "$params.outputDir/$task.process"
     input:
-        path("inputs_*.ome.zarr"), path("shifts_xy.csv")
+        tuple path("slice_z*_${params.resolution}um.ome.zarr"), path("shifts_xy.csv")
     output:
         path("3d_volume.ome.zarr")
     script:
     """
     mkdir inputs
     mv *.ome.zarr inputs/
-    linum_stack_mosaics_into_3d_volume.py inputs*.ome.zarr shifts_xy.csv 3d_volume.ome.zarr --slicing_interval $params.slicing_interval
+    linum_stack_mosaics_into_3d_volume.py inputs shifts_xy.csv 3d_volume.ome.zarr --slicing_interval $params.slicing_interval
     """
 }
 
@@ -183,10 +183,11 @@ workflow {
     // Slices stitching
     stack_in_channel = stitch_3d.out
         .toSortedList{a, b -> a[0] <=> b[0]}
-        .collect()
+        .flatten()
         .collate(2)
         .map{_meta, filename -> filename}
-        .join(estimate_xy_shifts_from_metadata.out)
+        .collect()
+        .merge(estimate_xy_shifts_from_metadata.out){a, b -> tuple(a, b)}
     stack_in_channel.view()
 
     stack_mosaics_into_3d_volume(stack_in_channel)
