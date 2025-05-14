@@ -11,6 +11,7 @@ params.inputDir = "";
 params.outputDir = "";
 params.resolution = 10; // Resolution of the reconstruction in micron/pixel
 params.processes = 1; // Maximum number of python processes per nextflow process
+params.slicing_interval = 0.2; // Spacing between slices in mm
 
 // Processes
 process create_mosaic_grid {
@@ -136,6 +137,20 @@ process estimate_xy_shifts_from_metadata {
     """
 }
 
+process stack_mosaics_into_3d_volume {
+    publishDir "$params.outputDir/$task.process"
+    input:
+        path("inputs_*.ome.zarr"), path("shifts_xy.csv")
+    output:
+        path("3d_volume.ome.zarr")
+    script:
+    """
+    mkdir inputs
+    mv *.ome.zarr inputs/
+    linum_stack_mosaics_into_3d_volume.py inputs*.ome.zarr shifts_xy.csv 3d_volume.ome.zarr --slicing_interval $params.slicing_interval
+    """
+}
+
 workflow {
     inputSlices = Channel.fromPath("$params.inputDir/tile_x*_y*_z*/", type: 'dir')
                          .map{path -> tuple(path.toString().substring(path.toString().length() - 2), path)}
@@ -163,5 +178,14 @@ workflow {
     // Stitch the tile in 3D
     stitch_3d(fix_illumination.out.combine(estimate_xy_transformation.out, by:0))
 
-    // TODO: PSF and depth correction and slices stitching
+    // TODO: PSF and depth correction
+
+    // Slices stitching
+    stack_in_channel = stitch_3d.out
+        .toSortedList{a, b -> a[0] <=> b[0]}
+        .map{_meta, filename -> filename}
+        .join(estimate_xy_shifts_from_metadata.out)
+    stack_in_channel.view()
+
+    stack_mosaics_into_3d_volume(stack_in_channel)
 }
