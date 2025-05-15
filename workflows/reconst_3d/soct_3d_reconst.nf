@@ -12,6 +12,7 @@ params.outputDir = "";
 params.resolution = 10; // Resolution of the reconstruction in micron/pixel
 params.processes = 1; // Maximum number of python processes per nextflow process
 params.slicing_interval = 0.2; // Spacing between slices in mm
+params.stacking_start_index = 35; // Mosaics will be stacked starting at this index.
 
 // Processes
 process create_mosaic_grid {
@@ -147,7 +148,7 @@ process stack_mosaics_into_3d_volume {
     """
     mkdir inputs
     mv *.ome.zarr inputs/
-    linum_stack_mosaics_into_3d_volume.py inputs shifts_xy.csv 3d_volume.ome.zarr --slicing_interval $params.slicing_interval
+    linum_stack_mosaics_into_3d_volume.py inputs shifts_xy.csv 3d_volume.ome.zarr --slicing_interval $params.slicing_interval --start_index $params.stacking_start_index
     """
 }
 
@@ -188,7 +189,6 @@ workflow {
         .map{_meta, filename -> filename}
         .collect()
         .merge(estimate_xy_shifts_from_metadata.out){a, b -> tuple(a, b)}
-    stack_in_channel.view()
 
     stack_mosaics_into_3d_volume(stack_in_channel)
 }

@@ -33,6 +33,8 @@ def _build_arg_parser():
                    help='Path to the output stack.')
     p.add_argument('--slicing_interval', type=float, default=0.2,
                    help='Interval between slices in mm. [%(default)s]')
+    p.add_argument('--start_index', type=int,
+                   help='Start index for each volume. If None, will be detected automatically.')
     return p
 
 
@@ -120,13 +122,16 @@ def main():
     print(f"Mosaic depth: {mosaics_depth} voxels")
 
     # find index of interface for each slice
-    start_index = 0
-    for slice_id, f in zip(slice_ids, mosaics_files):
-        if slice_id == 0:
-            # skip first slice to make sure we don't skip too much volume
-            continue
-        img, res = read_omezarr(f)
-        start_index = max(start_index, get_interface_index(img, sigma=2.0))
+    if args.start_index is not None:
+        start_index = args.start_index
+    else:
+        start_index = 0
+        for slice_id, f in zip(slice_ids, mosaics_files):
+            if slice_id == 0:
+                # skip first slice to make sure we don't skip too much volume
+                continue
+            img, res = read_omezarr(f)
+            start_index = max(start_index, get_interface_index(img, sigma=2.0))
     print(f"Interface index: {start_index}")
 
     store = zarr.TempStore()
