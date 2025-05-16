@@ -142,9 +142,9 @@ def main():
     for i in tqdm(range(len(mosaics_files)), unit="slice", desc="Stacking slices"):
         # Load the slice
         f = mosaics_files[i]
+        z = slice_ids[i]
         img, res = read_omezarr(f)
         img = img[start_index:start_index + mosaics_depth]
-        print(img.shape)
 
         # Get the shift values for the slice
         if i == 0:
@@ -158,7 +158,7 @@ def main():
         img = apply_xy_shift(img, mosaic[:mosaics_depth, :, :], dx, dy)
 
         # Add the slice to the volume
-        mosaic[i*mosaics_depth:(i+1)*mosaics_depth, :, :] = img
+        mosaic[z*mosaics_depth:(z+1)*mosaics_depth, :, :] = img
 
         del img
 
