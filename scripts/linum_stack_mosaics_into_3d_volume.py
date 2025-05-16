@@ -136,7 +136,7 @@ def main():
 
     store = zarr.TempStore()
     mosaic = zarr.open(store, mode="w", shape=volume_shape,
-                       dtype=np.float32, chunks=(1, 256, 256))
+                       dtype=np.float32, chunks=(512, 512, 512))
 
     # Loop over the slices
     for i in tqdm(range(len(mosaics_files)), unit="slice", desc="Stacking slices"):
@@ -164,7 +164,7 @@ def main():
 
     dask_arr = da.from_zarr(mosaic)
     save_zarr(dask_arr, args.out_stack, scales=res,
-              chunks=(1, 256, 256), n_levels=3)
+              chunks=(512, 512, 512), n_levels=3)
     print(f"Output volume saved to {args.out_stack}")
 
 
