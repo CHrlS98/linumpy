@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 import argparse
-from skimage.registration import optical_flow_tvl1, phase_cross_correlation
-from skimage.transform import warp
 from scipy.ndimage import gaussian_filter1d
-from scipy.ndimage import gaussian_filter, binary_erosion
-from scipy.signal import convolve
 
 from linumpy.io.zarr import read_omezarr, save_zarr
 from linumpy.utils_images import apply_xy_shift
@@ -13,11 +9,9 @@ import zarr
 import dask.array as da
 import re
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-import os
 from pathlib import Path
 
 from tqdm import tqdm
