@@ -141,13 +141,11 @@ process estimate_xy_shifts_from_metadata {
 process stack_mosaics_into_3d_volume {
     publishDir "$params.outputDir/$task.process"
     input:
-        tuple path("slice_z*_${params.resolution}um.ome.zarr"), path("shifts_xy.csv")
+        tuple path("inputs/*"), path("shifts_xy.csv")
     output:
         path("3d_volume.ome.zarr")
     script:
     """
-    mkdir inputs
-    mv *.ome.zarr inputs/
     linum_stack_mosaics_into_3d_volume.py inputs shifts_xy.csv 3d_volume.ome.zarr --slicing_interval $params.slicing_interval --start_index $params.stacking_start_index
     """
 }

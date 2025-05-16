@@ -96,12 +96,19 @@ def main():
     args = parser.parse_args()
 
     # get all .ome.zarr files in in_mosaics_dir
-    mosaics_files = sorted(Path(args.in_mosaics_dir).glob('*.ome.zarr'))
+    in_mosaics_dir = Path(args.in_mosaics_dir)
+    mosaics_files = [p for p in in_mosaics_dir.glob('*.ome.zarr')]
+    mosaics_files.sort()
+    print(mosaics_files)
     pattern = r".*z(\d+)_.*"
     slice_ids = []
     for f in mosaics_files:
         foo = re.match(pattern, f.name)
         slice_ids.append(int(foo.groups()[0]))
+    slice_ids = np.array(slice_ids)
+
+    # when indexing does not start from 0, we need to shift the slice ids
+    slice_ids -= np.min(slice_ids)
 
     # Load cvs containing the shift values for each slice
     df = pd.read_csv(args.in_xy_shifts)
@@ -143,6 +150,8 @@ def main():
         # Load the slice
         f = mosaics_files[i]
         z = slice_ids[i]
+        print(i, z)
+
         img, res = read_omezarr(f)
         img = img[start_index:start_index + mosaics_depth]
 
