@@ -12,7 +12,7 @@ params.outputDir = "";
 params.resolution = 10; // Resolution of the reconstruction in micron/pixel
 params.processes = 1; // Maximum number of python processes per nextflow process
 params.slicing_interval = 0.2; // Spacing between slices in mm
-params.stacking_start_index = 35; // Mosaics will be stacked starting at this index.
+params.stacking_start_index = 50; // Mosaics will be stacked starting at this index.
 
 // Processes
 process create_mosaic_grid {
