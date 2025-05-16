@@ -99,7 +99,6 @@ def main():
     in_mosaics_dir = Path(args.in_mosaics_dir)
     mosaics_files = [p for p in in_mosaics_dir.glob('*.ome.zarr')]
     mosaics_files.sort()
-    print(mosaics_files)
     pattern = r".*z(\d+)_.*"
     slice_ids = []
     for f in mosaics_files:
@@ -150,7 +149,6 @@ def main():
         # Load the slice
         f = mosaics_files[i]
         z = slice_ids[i]
-        print(i, z)
 
         img, res = read_omezarr(f)
         img = img[start_index:start_index + mosaics_depth]
@@ -164,7 +162,7 @@ def main():
             dy = np.cumsum(dy_list)[i - 1] + y0
 
         # Apply the shift
-        img = apply_xy_shift(img, mosaic[:mosaics_depth, :, :], dx, dy)
+        img = apply_xy_shift(img, mosaic[:mosaics_depth, :, :], dy, dx)
 
         # Add the slice to the volume
         mosaic[z*mosaics_depth:(z+1)*mosaics_depth, :, :] = img
