@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import argparse
-from scipy.ndimage import gaussian_filter1d
 
 from linumpy.io.zarr import read_omezarr, save_zarr
 from linumpy.utils_images import apply_xy_shift
@@ -9,6 +8,8 @@ import zarr
 import dask.array as da
 import re
 
+from skimage.registration import phase_cross_correlation
+from scipy.ndimage import gaussian_gradient_magnitude, shift
 import numpy as np
 import pandas as pd
 
@@ -25,14 +26,18 @@ def _build_arg_parser():
                    help='Path to the file containing the XY shifts.')
     p.add_argument('out_stack',
                    help='Path to the output stack.')
+    p.add_argument('--save_grad',
+                   help='Optional filename for 2D gradient magnitude.')
     p.add_argument('--slicing_interval', type=float, default=0.2,
                    help='Interval between slices in mm. [%(default)s]')
-    p.add_argument('--start_index', type=int,
-                   help='Start index for each volume. If None, will be detected automatically.')
+    p.add_argument('--start_index', type=int, default=50,
+                   help='Start index for each volume. [%(default)s]')
+
     return p
 
 
-def compute_volume_shape(mosaics_files, dx_list, dy_list, slicing_interval):
+def compute_volume_shape(mosaics_files, mosaics_depth,
+                         dx_list, dy_list):
 
     # Compute the volume shape
     xmin = []
@@ -69,20 +74,8 @@ def compute_volume_shape(mosaics_files, dx_list, dy_list, slicing_interval):
 
     # TODO: Handle the case where resolution does not perfectly
     # divides the slicing interval
-    volume_shape = (int(slicing_interval/res[0])*len(mosaics_files), ny, nx)
+    volume_shape = (mosaics_depth*len(mosaics_files), ny, nx)
     return volume_shape, x0, y0
-
-
-def get_interface_index(vol, sigma):
-    mean_intensity = np.mean(vol, axis=(1,2))
-
-    mean_intensity = gaussian_filter1d(mean_intensity, sigma)
-
-    d1x = np.diff(mean_intensity, 1)
-
-    # find start index
-    start_index = np.argmax(d1x)
-    return start_index
 
 
 def main():
@@ -115,29 +108,27 @@ def main():
     dx_list /= res[-1]
     dy_list /= res[-2]
 
-    volume_shape, x0, y0 = compute_volume_shape(mosaics_files, dx_list, dy_list,
-                                                args.slicing_interval)
-    mosaics_depth = int(args.slicing_interval / res[0])
+    mosaics_depth = round(args.slicing_interval / res[0])
+    volume_shape, x0, y0 = compute_volume_shape(mosaics_files,
+                                                mosaics_depth,
+                                                dx_list, dy_list)
     print(f"Output volume shape: {volume_shape}")
     print(f"Mosaic depth: {mosaics_depth} voxels")
 
-    # find index of interface for each slice
-    if args.start_index is not None:
-        start_index = args.start_index
-    else:
-        start_index = 0
-        for slice_id, f in zip(slice_ids, mosaics_files):
-            if slice_id == 0:
-                # skip first slice to make sure we don't skip too much volume
-                continue
-            img, res = read_omezarr(f)
-            start_index = max(start_index, get_interface_index(img, sigma=2.0))
+    start_index = args.start_index
     print(f"Interface index: {start_index}")
 
-    store = zarr.TempStore()
-    mosaic = zarr.open(store, mode="w", shape=volume_shape,
+    mosaic_store = zarr.TempStore()
+    mosaic = zarr.open(mosaic_store, mode="w", shape=volume_shape,
                        dtype=np.float32, chunks=(512, 512, 512))
+    
+    grad_store = zarr.TempStore()
+    vol_grad = zarr.open(grad_store, mode="w", shape=volume_shape,
+                     dtype=np.float32, chunks=(512, 512, 512))
 
+    prev_mosaic_bottom = np.zeros((mosaic.shape[1:]))
+
+    errors = []
     # Loop over the slices
     for i in tqdm(range(len(mosaics_files)), unit="slice", desc="Stacking slices"):
         # Load the slice
@@ -145,29 +136,58 @@ def main():
         z = slice_ids[i]
 
         img, res = read_omezarr(f)
-        img = img[start_index:start_index + mosaics_depth]
+        img = img[start_index:start_index + mosaics_depth + 1]
 
         # Get the shift values for the slice
-        if i == 0:
-            dx = x0
-            dy = y0
-        else:
-            dx = np.cumsum(dx_list)[i - 1] + x0
-            dy = np.cumsum(dy_list)[i - 1] + y0
+        dx = x0
+        dy = y0
+        if i > 0:
+            dx += np.cumsum(dx_list)[i - 1]
+            dy += np.cumsum(dy_list)[i - 1]
 
         # Apply the shift
-        img = apply_xy_shift(img, mosaic[:mosaics_depth, :, :], dy, dx)
+        img = apply_xy_shift(img, mosaic[:mosaics_depth + 1, :, :], dy, dx)
+
+        # Equalize intensities
+        clip_ubound = np.percentile(img, 99, axis=(1, 2), keepdims=True)
+        img = np.clip(img, a_min=None, a_max=clip_ubound)
+        if img.max() - img.min() > 0.0:
+            img /= np.max(img, axis=(1, 2), keepdims=True)
+
+        if i > 0:
+            # Register volume at depth 0 to previous volume at depth mosaics_depth + 1
+            px_shift, error, _ = phase_cross_correlation(prev_mosaic_bottom, img[0, :, :],
+                                                         normalization=None,
+                                                         disambiguate=True)
+            errors.append(error)
+            img = shift(img, (0.0, px_shift[0], px_shift[1]))
+
+        # Compute 2D norm of gradient.
+        img_grad = gaussian_gradient_magnitude(img, sigma=3.0, axes=(1,2))
+        if img_grad.max() - img_grad.min() > 0.0:
+            img_grad /= np.max(img_grad, axis=(1, 2), keepdims=True)
 
         # Add the slice to the volume
-        mosaic[z*mosaics_depth:(z+1)*mosaics_depth, :, :] = img
+        mosaic[z*mosaics_depth:(z+1)*mosaics_depth, :, :] = img[:mosaics_depth, :, :]
+        vol_grad[z*mosaics_depth:(z+1)*mosaics_depth, :, :] = img_grad[:mosaics_depth, :, :]
 
+        # Save last slice of stack for registration of next slice
+        prev_mosaic_bottom = img[-1, :, :]
         del img
 
     dask_arr = da.from_zarr(mosaic)
     save_zarr(dask_arr, args.out_stack, scales=res,
               chunks=(512, 512, 512), n_levels=3)
+
+    if args.save_grad:
+        dask_grad = da.from_zarr(vol_grad)
+        save_zarr(dask_grad, args.save_grad, scales=res,
+                  chunks=(512, 512, 512), n_levels=3)
+        print(f"Gradients saved to {args.save_grad}")
+
     print(f"Output volume saved to {args.out_stack}")
 
+    print(f"Mean registration error is {np.mean(errors)}")
 
 
 if __name__ == '__main__':
