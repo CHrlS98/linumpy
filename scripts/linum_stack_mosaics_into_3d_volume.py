@@ -28,8 +28,8 @@ def _build_arg_parser():
                    help='Path to the output stack.')
     p.add_argument('--save_grad',
                    help='Optional filename for 2D gradient magnitude.')
-    p.add_argument('--slicing_interval', type=float, default=0.2,
-                   help='Interval between slices in mm. [%(default)s]')
+    p.add_argument('--slicing_interval', type=float, default=200,
+                   help='Interval between slices in microns. [%(default)s]')
     p.add_argument('--start_index', type=int, default=50,
                    help='Start index for each volume. [%(default)s]')
 
@@ -108,7 +108,7 @@ def main():
     dx_list /= res[-1]
     dy_list /= res[-2]
 
-    mosaics_depth = round(args.slicing_interval / res[0])
+    mosaics_depth = round(args.slicing_interval / 1000.0 / res[0])
     volume_shape, x0, y0 = compute_volume_shape(mosaics_files,
                                                 mosaics_depth,
                                                 dx_list, dy_list)
@@ -145,7 +145,7 @@ def main():
             dx += np.cumsum(dx_list)[i - 1]
             dy += np.cumsum(dy_list)[i - 1]
 
-        # Apply the shift
+        # Apply the shift as an initial alignment
         img = apply_xy_shift(img, mosaic[:mosaics_depth + 1, :, :], dy, dx)
 
         # Equalize intensities
