@@ -11,8 +11,9 @@ params.inputDir = "";
 params.outputDir = "";
 params.resolution = 10; // Resolution of the reconstruction in micron/pixel
 params.processes = 1; // Maximum number of python processes per nextflow process
-params.slicing_interval = 0.2; // Spacing between slices in mm
-params.stacking_start_index = 50; // Mosaics will be stacked starting at this index.
+params.slicing_interval = 200; // Spacing between slices in microns
+params.stacking_offset = 50; // Mosaics will be stacked starting at this offset from the interface.
+params.axial_resolution = 3.5 // Axial resolution of imaging system in microns
 
 // Processes
 process create_mosaic_grid {
@@ -22,7 +23,7 @@ process create_mosaic_grid {
         tuple val(slice_id), path("*.ome.zarr")
     script:
     """
-    linum_create_mosaic_grid_3d.py mosaic_grid_3d_${params.resolution}um.ome.zarr --from_tiles_list $tiles --resolution ${params.resolution} --n_processes ${params.processes}
+    linum_create_mosaic_grid_3d.py mosaic_grid_3d_${params.resolution}um.ome.zarr --from_tiles_list $tiles --resolution ${params.resolution} --n_processes ${params.processes} --axial_resolution ${params.axial_resolution}
     """
 }
 
@@ -146,7 +147,18 @@ process stack_mosaics_into_3d_volume {
         path("3d_volume.ome.zarr")
     script:
     """
-    linum_stack_mosaics_into_3d_volume.py inputs shifts_xy.csv 3d_volume.ome.zarr --slicing_interval $params.slicing_interval --start_index $params.stacking_start_index
+    linum_stack_mosaics_into_3d_volume.py inputs shifts_xy.csv 3d_volume.ome.zarr --slicing_interval $params.slicing_interval --start_index $params.stacking_offset
+    """
+}
+
+process crop_interface {
+    input:
+        tuple val(slice_id), path(image)
+    output:
+        tuple val(slice_id), path("slice_z${slice_id}_${params.resolution}um_crop.ome.zarr")
+    script:
+    """
+    linum_crop_mosaic_3d_at_interface.py $image "slice_z${slice_id}_${params.resolution}um_crop.ome.zarr" --out_depth 60
     """
 }
 
@@ -179,8 +191,11 @@ workflow {
 
     // TODO: PSF and depth correction
 
+    // Crop at interface
+    crop_interface(stitch_3d.out)
+
     // Slices stitching
-    stack_in_channel = stitch_3d.out
+    stack_in_channel = crop_interface.out
         .toSortedList{a, b -> a[0] <=> b[0]}
         .flatten()
         .collate(2)
