@@ -3,13 +3,14 @@ import argparse
 
 from linumpy.io.zarr import read_omezarr, save_zarr
 from linumpy.utils_images import apply_xy_shift
+from linumpy.stitching.registration import register_consecutive_3d_mosaics
 
 import zarr
 import dask.array as da
 import re
 
 from skimage.registration import phase_cross_correlation
-from scipy.ndimage import gaussian_gradient_magnitude, shift
+from scipy.ndimage import shift
 import numpy as np
 import pandas as pd
 
@@ -26,13 +27,15 @@ def _build_arg_parser():
                    help='Path to the file containing the XY shifts.')
     p.add_argument('out_stack',
                    help='Path to the output stack.')
-    p.add_argument('--save_grad',
-                   help='Optional filename for 2D gradient magnitude.')
-    p.add_argument('--slicing_interval', type=float, default=200,
-                   help='Interval between slices in microns. [%(default)s]')
-    p.add_argument('--start_index', type=int, default=50,
-                   help='Start index for each volume. [%(default)s]')
-
+    p.add_argument('--initial_search', type=int, default=20,
+                   help='Initial depth for depth matching (in voxels). [%(default)s]')
+    p.add_argument('--depth_offset', type=int, default=50,
+                   help='Offset from interface for each volume. [%(default)s]')
+    p.add_argument('--max_allowed_overlap', type=int, default=5,
+                   help='Maximum allowed overlap for the alignment. [%(default)s]')
+    p.add_argument('--method', choices=['phase_cross_correlation', 'sitk_affine_2d'],
+                   default='sitk_affine_2d',
+                   help='Method to use for alignment. [%(default)s]')
     return p
 
 
@@ -78,6 +81,38 @@ def compute_volume_shape(mosaics_files, mosaics_depth,
     return volume_shape, x0, y0
 
 
+def align_phase_cross_correlation(prev_mosaic, img, max_allowed_overlap):
+    errors = []
+    shifts = []
+    for i in range(max_allowed_overlap):
+        # if the lowest error is the one at the end of
+        # previous slice, we don't need to shift anything
+        px_shift, error, _ = phase_cross_correlation(
+            prev_mosaic[-1, :, :], img[i, :, :],
+            normalization=None, disambiguate=True
+        )
+        shifts.append(px_shift)
+        errors.append(error)
+    best_offset = np.argmin(errors)  # this one starts at 0
+    px_shift = shifts[best_offset]
+    img = shift(img, (0.0, px_shift[0], px_shift[1]))
+    return img[best_offset:], best_offset
+
+
+def align_sitk_affine_2d(prev_mosaic, img, max_allowed_overlap):
+    best_offset = 0
+    min_error = np.inf
+    best_warp = np.zeros(img.shape)
+    for i in range(max_allowed_overlap):
+        warped_img, error = register_consecutive_3d_mosaics(prev_mosaic[-1, :, :], img[i:, :, :])
+        if error < min_error:
+            min_error = error
+            best_offset = i
+            best_warp[i:] = warped_img
+    best_warp = best_warp[best_offset:]
+    return best_warp, best_offset
+
+
 def main():
     parser = _build_arg_parser()
     args = parser.parse_args()
@@ -108,27 +143,23 @@ def main():
     dx_list /= res[-1]
     dy_list /= res[-2]
 
-    mosaics_depth = round(args.slicing_interval / 1000.0 / res[0])
+    mosaics_depth = args.initial_search
     volume_shape, x0, y0 = compute_volume_shape(mosaics_files,
                                                 mosaics_depth,
                                                 dx_list, dy_list)
     print(f"Output volume shape: {volume_shape}")
     print(f"Mosaic depth: {mosaics_depth} voxels")
 
-    start_index = args.start_index
+    start_index = args.depth_offset
     print(f"Interface index: {start_index}")
 
     mosaic_store = zarr.TempStore()
     mosaic = zarr.open(mosaic_store, mode="w", shape=volume_shape,
-                       dtype=np.float32, chunks=(512, 512, 512))
-    
-    grad_store = zarr.TempStore()
-    vol_grad = zarr.open(grad_store, mode="w", shape=volume_shape,
-                     dtype=np.float32, chunks=(512, 512, 512))
+                       dtype=np.float32, chunks=(256, 256, 256))
 
-    prev_mosaic_bottom = np.zeros((mosaic.shape[1:]))
+    prev_mosaic = None
+    current_z_offset = 0
 
-    errors = []
     # Loop over the slices
     for i in tqdm(range(len(mosaics_files)), unit="slice", desc="Stacking slices"):
         # Load the slice
@@ -149,45 +180,38 @@ def main():
         img = apply_xy_shift(img, mosaic[:mosaics_depth + 1, :, :], dy, dx)
 
         # Equalize intensities
-        clip_ubound = np.percentile(img, 99, axis=(1, 2), keepdims=True)
+        clip_ubound = np.percentile(img, 99.5, axis=(1, 2), keepdims=True)
         img = np.clip(img, a_min=None, a_max=clip_ubound)
         if img.max() - img.min() > 0.0:
             img /= np.max(img, axis=(1, 2), keepdims=True)
 
-        if i > 0:
-            # Register volume at depth 0 to previous volume at depth mosaics_depth + 1
-            px_shift, error, _ = phase_cross_correlation(prev_mosaic_bottom, img[0, :, :],
-                                                         normalization=None,
-                                                         disambiguate=True)
-            errors.append(error)
-            img = shift(img, (0.0, px_shift[0], px_shift[1]))
+        best_offset = 0
+        if prev_mosaic is not None:
+            if args.method == 'phase_cross_correlation':
+                img, best_offset = align_phase_cross_correlation(
+                    prev_mosaic, img, args.max_allowed_overlap
+                )
+            else:
+                img, best_offset = align_sitk_affine_2d(
+                    prev_mosaic, img, args.max_allowed_overlap
+                )
 
-        # Compute 2D norm of gradient.
-        img_grad = gaussian_gradient_magnitude(img, sigma=3.0, axes=(1,2))
-        if img_grad.max() - img_grad.min() > 0.0:
-            img_grad /= np.max(img_grad, axis=(1, 2), keepdims=True)
+        print(f'Best offset is {best_offset}')
 
         # Add the slice to the volume
-        mosaic[z*mosaics_depth:(z+1)*mosaics_depth, :, :] = img[:mosaics_depth, :, :]
-        vol_grad[z*mosaics_depth:(z+1)*mosaics_depth, :, :] = img_grad[:mosaics_depth, :, :]
+        mosaic[current_z_offset:current_z_offset + len(img) - 1, :, :] = img[:-1]
 
-        # Save last slice of stack for registration of next slice
-        prev_mosaic_bottom = img[-1, :, :]
-        del img
+        # Save last volume of stack for registration of next slice
+        prev_mosaic = img
+
+        # update the z offset
+        current_z_offset += len(img) - 1
 
     dask_arr = da.from_zarr(mosaic)
     save_zarr(dask_arr, args.out_stack, scales=res,
-              chunks=(512, 512, 512), n_levels=3)
-
-    if args.save_grad:
-        dask_grad = da.from_zarr(vol_grad)
-        save_zarr(dask_grad, args.save_grad, scales=res,
-                  chunks=(512, 512, 512), n_levels=3)
-        print(f"Gradients saved to {args.save_grad}")
+              chunks=(256, 256, 256), n_levels=3)
 
     print(f"Output volume saved to {args.out_stack}")
-
-    print(f"Mean registration error is {np.mean(errors)}")
 
 
 if __name__ == '__main__':

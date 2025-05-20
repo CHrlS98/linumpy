@@ -4,7 +4,7 @@ import os
 import numpy as np
 from pathlib import Path
 import SimpleITK as sitk
-from linumpy.utils.registration import ITKRegistration
+from linumpy.stitching.registration import ITKRegistration
 
 
 def _build_arg_parser():

@@ -11,9 +11,11 @@ params.inputDir = "";
 params.outputDir = "";
 params.resolution = 10; // Resolution of the reconstruction in micron/pixel
 params.processes = 1; // Maximum number of python processes per nextflow process
-params.slicing_interval = 200; // Spacing between slices in microns
-params.stacking_offset = 50; // Mosaics will be stacked starting at this offset from the interface.
-params.axial_resolution = 3.5 // Axial resolution of imaging system in microns
+params.depth_offset = 10; // Skip this many voxels from the top of the 3d mosaic
+params.initial_search = 25; // Initial search index for mosaics stacking
+params.max_allowed_overlap = 10; // Slices are allowed to shift up to this many voxels from the initial search index
+params.axial_resolution = 2.87 // Axial resolution of imaging system in microns
+params.crop_interface_out_depth = 60 // Minimum depth of the cropped image in voxels
 
 // Processes
 process create_mosaic_grid {
@@ -147,7 +149,7 @@ process stack_mosaics_into_3d_volume {
         path("3d_volume.ome.zarr")
     script:
     """
-    linum_stack_mosaics_into_3d_volume.py inputs shifts_xy.csv 3d_volume.ome.zarr --slicing_interval $params.slicing_interval --start_index $params.stacking_offset
+    linum_stack_mosaics_into_3d_volume.py inputs shifts_xy.csv 3d_volume.ome.zarr --initial_search $params.initial_search --depth_offset $params.depth_offset --max_allowed_overlap $params.max_allowed_overlap
     """
 }
 
@@ -158,7 +160,7 @@ process crop_interface {
         tuple val(slice_id), path("slice_z${slice_id}_${params.resolution}um_crop.ome.zarr")
     script:
     """
-    linum_crop_mosaic_3d_at_interface.py $image "slice_z${slice_id}_${params.resolution}um_crop.ome.zarr" --out_depth 60
+    linum_crop_mosaic_3d_at_interface.py $image "slice_z${slice_id}_${params.resolution}um_crop.ome.zarr" --out_depth $params.crop_interface_out_depth
     """
 }
 
