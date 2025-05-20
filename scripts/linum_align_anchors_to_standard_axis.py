@@ -7,6 +7,7 @@ from scipy.ndimage import map_coordinates
 import nibabel as nib
 import numpy as np
 from linumpy.utils.coordinates import AXIS_NAME_TO_INDEX, slice_along_axis
+from tqdm import tqdm
 
 
 def _build_arg_parser():
@@ -45,15 +46,15 @@ def main():
     axes_2d = [i for i in range(len(in_image.shape)) if i != AXIS_NAME_TO_INDEX[args.axis]]
     shape_2d = [in_image.shape[i] for i in axes_2d]
     # TODO: Handle buffer space better (very memory intensive)
-    inds_image = np.stack(np.meshgrid(np.arange(-2*shape_2d[0], 2*shape_2d[0]),
-                                      np.arange(-2*shape_2d[1], 2*shape_2d[1]), indexing='ij'), axis=0)
+    inds_image = np.stack(np.meshgrid(np.arange(-1.1*shape_2d[0], 1.1*shape_2d[0]),
+                                      np.arange(-1.1*shape_2d[1], 1.1*shape_2d[1]), indexing='ij'), axis=0)
 
     corner_min = np.array([[np.inf, np.inf]])
     corner_max = np.array([[-np.inf, -np.inf]])
 
     image_data = in_image.get_fdata()
     output_image = []
-    for idx in range(in_image.shape[AXIS_NAME_TO_INDEX[args.axis]]):
+    for idx in tqdm(range(in_image.shape[AXIS_NAME_TO_INDEX[args.axis]])):
         slicer = slice_along_axis(idx, in_image.shape, AXIS_NAME_TO_INDEX[args.axis])
         delta = idx - p0[AXIS_NAME_TO_INDEX[args.axis]]
         translation = delta * d_vec[axes_2d]
