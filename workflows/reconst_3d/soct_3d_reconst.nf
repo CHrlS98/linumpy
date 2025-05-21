@@ -16,6 +16,7 @@ params.initial_search = 25; // Initial search index for mosaics stacking
 params.max_allowed_overlap = 10; // Slices are allowed to shift up to this many voxels from the initial search index
 params.axial_resolution = 2.87 // Axial resolution of imaging system in microns
 params.crop_interface_out_depth = 60 // Minimum depth of the cropped image in voxels
+params.stack_mosaics_registration_method = 'sitk_affine_2d'; // Method used for registering stitched mosaics together
 
 // Processes
 process create_mosaic_grid {
@@ -149,7 +150,7 @@ process stack_mosaics_into_3d_volume {
         path("3d_volume.ome.zarr")
     script:
     """
-    linum_stack_mosaics_into_3d_volume.py inputs shifts_xy.csv 3d_volume.ome.zarr --initial_search $params.initial_search --depth_offset $params.depth_offset --max_allowed_overlap $params.max_allowed_overlap
+    linum_stack_mosaics_into_3d_volume.py inputs shifts_xy.csv 3d_volume.ome.zarr --initial_search $params.initial_search --depth_offset $params.depth_offset --max_allowed_overlap $params.max_allowed_overlap --method $params.stack_mosaics_registration_method
     """
 }
 

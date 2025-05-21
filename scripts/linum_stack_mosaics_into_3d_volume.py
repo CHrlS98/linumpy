@@ -33,7 +33,7 @@ def _build_arg_parser():
                    help='Offset from interface for each volume. [%(default)s]')
     p.add_argument('--max_allowed_overlap', type=int, default=5,
                    help='Maximum allowed overlap for the alignment. [%(default)s]')
-    p.add_argument('--method', choices=['phase_cross_correlation', 'sitk_affine_2d'],
+    p.add_argument('--method', choices=['phase_cross_correlation', 'sitk_affine_2d', 'none'],
                    default='sitk_affine_2d',
                    help='Method to use for alignment. [%(default)s]')
     return p
@@ -62,10 +62,10 @@ def compute_volume_shape(mosaics_files, mosaics_depth,
         else:
             dx = np.cumsum(dx_list)[i - 1]
             dy = np.cumsum(dy_list)[i - 1]
-            xmin.append(-dx)
-            xmax.append(-dx + shape[1])
-            ymin.append(-dy)
-            ymax.append(-dy + shape[0])
+            xmin.append(dx)
+            xmax.append(dx + shape[-1])
+            ymin.append(dy)
+            ymax.append(dy + shape[-2])
 
     # Get the volume shape
     x0 = min(xmin)
@@ -177,7 +177,7 @@ def main():
             dy += np.cumsum(dy_list)[i - 1]
 
         # Apply the shift as an initial alignment
-        img = apply_xy_shift(img, mosaic[:mosaics_depth + 1, :, :], dy, dx)
+        img = apply_xy_shift(img, mosaic[:mosaics_depth + 1, :, :], dx, dy)
 
         # Equalize intensities
         clip_ubound = np.percentile(img, 99.5, axis=(1, 2), keepdims=True)
@@ -191,7 +191,7 @@ def main():
                 img, best_offset = align_phase_cross_correlation(
                     prev_mosaic, img, args.max_allowed_overlap
                 )
-            else:
+            elif args.method == 'sitk_affine_2d':
                 img, best_offset = align_sitk_affine_2d(
                     prev_mosaic, img, args.max_allowed_overlap
                 )
