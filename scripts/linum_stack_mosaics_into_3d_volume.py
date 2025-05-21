@@ -62,10 +62,10 @@ def compute_volume_shape(mosaics_files, mosaics_depth,
         else:
             dx = np.cumsum(dx_list)[i - 1]
             dy = np.cumsum(dy_list)[i - 1]
-            xmin.append(dx)
-            xmax.append(dx + shape[-1])
-            ymin.append(dy)
-            ymax.append(dy + shape[-2])
+            xmin.append(-dx)
+            xmax.append(-dx + shape[-1])
+            ymin.append(-dy)
+            ymax.append(-dy + shape[-2])
 
     # Get the volume shape
     x0 = min(xmin)
