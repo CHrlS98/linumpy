@@ -56,16 +56,16 @@ def compute_volume_shape(mosaics_files, mosaics_depth,
         # Get the cumulative shift
         if i == 0:
             xmin.append(0)
-            xmax.append(shape[-1])
+            xmax.append(shape[-2])
             ymin.append(0)
-            ymax.append(shape[-2])
+            ymax.append(shape[-1])
         else:
             dx = np.cumsum(dx_list)[i - 1]
             dy = np.cumsum(dy_list)[i - 1]
             xmin.append(-dx)
-            xmax.append(-dx + shape[-1])
+            xmax.append(-dx + shape[-2])
             ymin.append(-dy)
-            ymax.append(-dy + shape[-2])
+            ymax.append(-dy + shape[-1])
 
     # Get the volume shape
     x0 = min(xmin)
@@ -77,7 +77,7 @@ def compute_volume_shape(mosaics_files, mosaics_depth,
 
     # TODO: Handle the case where resolution does not perfectly
     # divides the slicing interval
-    volume_shape = (mosaics_depth*len(mosaics_files), ny, nx)
+    volume_shape = (mosaics_depth*len(mosaics_files), nx, ny)
     return volume_shape, x0, y0
 
 
@@ -140,8 +140,8 @@ def main():
 
     # assume that the resolution is the same for all slices
     img, res = read_omezarr(mosaics_files[0])
-    dx_list /= res[-1]
-    dy_list /= res[-2]
+    dx_list /= res[-2]
+    dy_list /= res[-1]
 
     mosaics_depth = args.initial_search
     volume_shape, x0, y0 = compute_volume_shape(mosaics_files,
