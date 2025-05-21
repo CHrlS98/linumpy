@@ -108,7 +108,8 @@ def apply_xy_shift(img: np.ndarray, reference: np.ndarray, dx: int, dy: int) -> 
 
     translation = [0.] * fixed.GetDimension()
     # Set the translation
-    translation[:-1] = (dx, dy)
+    translation[0] = dx
+    translation[1] = dy
 
     # Set the transform
     transform = sitk.TranslationTransform(fixed.GetDimension())
