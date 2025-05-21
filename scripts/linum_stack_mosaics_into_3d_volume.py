@@ -177,7 +177,7 @@ def main():
             dy += np.cumsum(dy_list)[i - 1]
 
         # Apply the shift as an initial alignment
-        img = apply_xy_shift(img, mosaic[:mosaics_depth + 1, :, :], dx, dy)
+        img = apply_xy_shift(img, mosaic[:mosaics_depth + 1, :, :], dy, dx)
 
         # Equalize intensities
         clip_ubound = np.percentile(img, 99.5, axis=(1, 2), keepdims=True)
