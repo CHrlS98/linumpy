@@ -88,7 +88,7 @@ def align_phase_cross_correlation(prev_mosaic, img, max_allowed_overlap):
         # if the lowest error is the one at the end of
         # previous slice, we don't need to shift anything
         px_shift, error, _ = phase_cross_correlation(
-            prev_mosaic[-1, :, :], img[i, :, :],
+            prev_mosaic[-i, :, :], img,
             normalization=None, disambiguate=True
         )
         shifts.append(px_shift)
@@ -96,20 +96,19 @@ def align_phase_cross_correlation(prev_mosaic, img, max_allowed_overlap):
     best_offset = np.argmin(errors)  # this one starts at 0
     px_shift = shifts[best_offset]
     img = shift(img, (0.0, px_shift[0], px_shift[1]))
-    return img[best_offset:], best_offset
+    return img, best_offset
 
 
 def align_sitk_affine_2d(prev_mosaic, img, max_allowed_overlap):
     best_offset = 0
     min_error = np.inf
     best_warp = np.zeros(img.shape)
-    for i in range(max_allowed_overlap):
-        warped_img, error = register_consecutive_3d_mosaics(prev_mosaic[-1, :, :], img[i:, :, :])
+    for i in range(1, max_allowed_overlap + 1):
+        warped_img, error = register_consecutive_3d_mosaics(prev_mosaic[-i, :, :], img)
         if error < min_error:
             min_error = error
             best_offset = i
-            best_warp[i:] = warped_img
-    best_warp = best_warp[best_offset:]
+            best_warp[:] = warped_img
     return best_warp, best_offset
 
 
@@ -157,7 +156,6 @@ def main():
     mosaic = zarr.open(mosaic_store, mode="w", shape=volume_shape,
                        dtype=np.float32, chunks=(256, 256, 256))
 
-    prev_mosaic = None
     current_z_offset = 0
 
     # Loop over the slices
@@ -185,8 +183,9 @@ def main():
         if img.max() - img.min() > 0.0:
             img /= np.max(img, axis=(1, 2), keepdims=True)
 
-        best_offset = 0
-        if prev_mosaic is not None:
+        if i > 0:
+            prev_mosaic = mosaic[:current_z_offset]
+            best_offset = 0
             if args.method == 'phase_cross_correlation':
                 img, best_offset = align_phase_cross_correlation(
                     prev_mosaic, img, args.max_allowed_overlap
@@ -196,16 +195,20 @@ def main():
                     prev_mosaic, img, args.max_allowed_overlap
                 )
 
-        print(f'Best offset is {best_offset}')
+            print(f'Best offset is {best_offset}')
 
-        # Add the slice to the volume
-        mosaic[current_z_offset:current_z_offset + len(img) - 1, :, :] = img[:-1]
+            # Add the overlapping slice to the volume
+            mosaic[current_z_offset - best_offset:current_z_offset] = \
+                0.5 * img[:best_offset] + \
+                0.5 * mosaic[current_z_offset - best_offset:current_z_offset]
 
-        # Save last volume of stack for registration of next slice
-        prev_mosaic = img
+            # Add the remainder
+            mosaic[current_z_offset:current_z_offset+mosaics_depth-best_offset+1] = img[best_offset:]
+            current_z_offset += len(img) - best_offset
 
-        # update the z offset
-        current_z_offset += len(img) - 1
+        else:  # only true at very first iteration
+            mosaic[:mosaics_depth + 1, :, :] = img
+            current_z_offset += len(img)
 
     dask_arr = da.from_zarr(mosaic)
     save_zarr(dask_arr, args.out_stack, scales=res,
