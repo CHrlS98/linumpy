@@ -182,6 +182,8 @@ def main():
         img = np.clip(img, a_min=None, a_max=clip_ubound)
         if img.max() - img.min() > 0.0:
             img /= np.max(img, axis=(1, 2), keepdims=True)
+            img[np.isnan(img)] = 0.0
+            img[np.isinf(img)] = 0.0
 
         if i > 0:
             prev_mosaic = mosaic[:current_z_offset]
