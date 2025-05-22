@@ -7,16 +7,16 @@ nextflow.enable.dsl = 2
 // Output: 3D reconstruction
 
 // Parameters
-params.inputDir = "";
-params.outputDir = "";
-params.resolution = 10; // Resolution of the reconstruction in micron/pixel
-params.processes = 1; // Maximum number of python processes per nextflow process
-params.depth_offset = 10; // Skip this many voxels from the top of the 3d mosaic
-params.initial_search = 25; // Initial search index for mosaics stacking
-params.max_allowed_overlap = 10; // Slices are allowed to shift up to this many voxels from the initial search index
-params.axial_resolution = 2.87 // Axial resolution of imaging system in microns
+params.inputDir = ""
+params.outputDir = ""
+params.resolution = 10 // Resolution of the reconstruction in micron/pixel
+params.processes = 1 // Maximum number of python processes per nextflow process
+params.depth_offset = 10 // Skip this many voxels from the top of the 3d mosaic
+params.initial_search = 47 // Initial search index for mosaics stacking
+params.max_allowed_overlap = 10 // Slices are allowed to shift up to this many voxels from the initial search index
+params.axial_resolution = 3.5 // Axial resolution of imaging system in microns
 params.crop_interface_out_depth = 60 // Minimum depth of the cropped image in voxels
-params.stack_mosaics_registration_method = 'sitk_affine_2d'; // Method used for registering stitched mosaics together
+params.stack_mosaics_registration_method = 'sitk_affine_2d' // Method used for registering stitched mosaics together
 
 // Processes
 process create_mosaic_grid {
