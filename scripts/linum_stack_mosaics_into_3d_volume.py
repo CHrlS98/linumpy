@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""
+Stack 3D mosaics into a single 3D volume saved as .ome.zarr file.
+"""
 import argparse
 
 from linumpy.io.zarr import read_omezarr, save_zarr
@@ -27,9 +30,11 @@ def _build_arg_parser():
                    help='Path to the file containing the XY shifts.')
     p.add_argument('out_stack',
                    help='Path to the output stack.')
+    p.add_argument('--out_offsets',
+                   help='Optional output offsets file.')
     p.add_argument('--initial_search', type=int, default=20,
                    help='Initial depth for depth matching (in voxels). [%(default)s]')
-    p.add_argument('--depth_offset', type=int, default=50,
+    p.add_argument('--depth_offset', type=int, default=10,
                    help='Offset from interface for each volume. [%(default)s]')
     p.add_argument('--max_allowed_overlap', type=int, default=5,
                    help='Maximum allowed overlap for the alignment. [%(default)s]')
@@ -77,18 +82,20 @@ def compute_volume_shape(mosaics_files, mosaics_depth,
 
     # TODO: Handle the case where resolution does not perfectly
     # divides the slicing interval
-    volume_shape = (mosaics_depth*len(mosaics_files), nx, ny)
+    # Important!!! The +1 is to make sure that the last mosaic
+    # fits in the volume for the case where the best offset is always 1
+    volume_shape = (mosaics_depth*len(mosaics_files) + 1, nx, ny)
     return volume_shape, x0, y0
 
 
 def align_phase_cross_correlation(prev_mosaic, img, max_allowed_overlap):
     errors = []
     shifts = []
-    for i in range(max_allowed_overlap):
+    for i in range(1, max_allowed_overlap+1):
         # if the lowest error is the one at the end of
         # previous slice, we don't need to shift anything
         px_shift, error, _ = phase_cross_correlation(
-            prev_mosaic[-i, :, :], img,
+            prev_mosaic[-i, :, :], img[0, :, :],
             normalization=None, disambiguate=True
         )
         shifts.append(px_shift)
@@ -156,16 +163,16 @@ def main():
     mosaic = zarr.open(mosaic_store, mode="w", shape=volume_shape,
                        dtype=np.float32, chunks=(256, 256, 256))
 
-    current_z_offset = 0
+    z_offsets = [0]
 
     # Loop over the slices
     for i in tqdm(range(len(mosaics_files)), unit="slice", desc="Stacking slices"):
         # Load the slice
         f = mosaics_files[i]
-        z = slice_ids[i]
+        current_z_offset = z_offsets[-1]
 
         img, res = read_omezarr(f)
-        img = img[start_index:start_index + mosaics_depth + 1]
+        img = img[start_index:start_index + mosaics_depth]
 
         # Get the shift values for the slice
         dx = x0
@@ -175,10 +182,10 @@ def main():
             dy += np.cumsum(dy_list)[i - 1]
 
         # Apply the shift as an initial alignment
-        img = apply_xy_shift(img, mosaic[:mosaics_depth + 1, :, :], dy, dx)
+        img = apply_xy_shift(img, mosaic[:mosaics_depth, :, :], dy, dx)
 
         # Equalize intensities
-        clip_ubound = np.percentile(img, 99.5, axis=(1, 2), keepdims=True)
+        clip_ubound = np.percentile(img, 99.9, axis=(1, 2), keepdims=True)
         img = np.clip(img, a_min=None, a_max=clip_ubound)
         if img.max() - img.min() > 0.0:
             img /= np.max(img, axis=(1, 2), keepdims=True)
@@ -187,7 +194,7 @@ def main():
 
         if i > 0:
             prev_mosaic = mosaic[:current_z_offset]
-            best_offset = 0
+            best_offset = 1
             if args.method == 'phase_cross_correlation':
                 img, best_offset = align_phase_cross_correlation(
                     prev_mosaic, img, args.max_allowed_overlap
@@ -197,20 +204,29 @@ def main():
                     prev_mosaic, img, args.max_allowed_overlap
                 )
 
-            print(f'Best offset is {best_offset}')
+            # a bit of a hack for stacking the slice AFTER
+            # the best fit, instead of in replacement of it.
+            # TODO: Remove this s.t. the image is stacked in
+            # replacement of the best offset?
+            best_offset -= 1
+
 
             # Add the overlapping slice to the volume
-            mosaic[current_z_offset - best_offset:current_z_offset] = \
-                0.5 * img[:best_offset] + \
-                0.5 * mosaic[current_z_offset - best_offset:current_z_offset]
+            mosaic[current_z_offset - best_offset:
+                   current_z_offset+mosaics_depth-best_offset] = img[:]
 
-            # Add the remainder
-            mosaic[current_z_offset:current_z_offset+mosaics_depth-best_offset+1] = img[best_offset:]
             current_z_offset += len(img) - best_offset
 
         else:  # only true at very first iteration
-            mosaic[:mosaics_depth + 1, :, :] = img
+            mosaic[:mosaics_depth, :, :] = img
             current_z_offset += len(img)
+
+        z_offsets.append(current_z_offset)
+
+    # save the z offsets in npz
+    if args.out_offsets is not None:
+        np.save(args.out_offsets, np.array(z_offsets, dtype=np.int32))
+        print(f"Z offsets saved to {args.out_offsets}")
 
     dask_arr = da.from_zarr(mosaic)
     save_zarr(dask_arr, args.out_stack, scales=res,
