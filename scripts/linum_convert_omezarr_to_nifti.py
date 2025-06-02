@@ -18,8 +18,8 @@ def _build_arg_parser():
                    help="Full path to an OME-ZARR directory")
     p.add_argument("output",
                    help="Full path to the output nifti file")
-    p.add_argument("-r", "--resolution", type=float, default=10.0,
-                   help="Output resolution in micron [%(default)s].")
+    p.add_argument("-r", "--resolution", type=float, default=0.010,
+                   help="Output resolution in mm [%(default)s].")
     p.add_argument("--interpolation", choices=['nearest', 'linear'], default='linear',
                    help='Interpolation method [%(default)s].')
     p.add_argument("-i", "--isotropic", action="store_true",
@@ -37,10 +37,10 @@ def main():
 
     # Set the scaling factor
     transform = np.eye(3)
-    transform[0, 0] = args.resolution / (1000 * zarr_resolution[2])
-    transform[1, 1] = args.resolution / (1000 * zarr_resolution[1])
+    transform[0, 0] = args.resolution / (zarr_resolution[2])
+    transform[1, 1] = args.resolution / (zarr_resolution[1])
     if args.isotropic:
-        transform[2, 2] = args.resolution / (1000 * zarr_resolution[0])
+        transform[2, 2] = args.resolution / (zarr_resolution[0])
 
     # Compute the output volume shape
     old_shape = vol.shape
@@ -50,11 +50,11 @@ def main():
     if args.isotropic:
         new_spacing = (args.resolution, args.resolution, args.resolution)
     else:
-        new_spacing = (args.resolution, args.resolution, zarr_resolution[0] * 1000)
+        new_spacing = (args.resolution, args.resolution, zarr_resolution[0])
 
     # Prepare the output
     input_volume = sitk.GetImageFromArray(vol[:])
-    input_volume.SetSpacing((zarr_resolution[2] * 1000, zarr_resolution[1] * 1000, zarr_resolution[0] * 1000))
+    input_volume.SetSpacing((zarr_resolution[2], zarr_resolution[1], zarr_resolution[0]))
 
     # Create the sampler
     sampler = sitk.ResampleImageFilter()
