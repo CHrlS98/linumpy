@@ -426,7 +426,7 @@ def register_consecutive_3d_mosaics(prev_mosaic_bottom_slice, current_mosaic):
     R.SetOptimizerScalesFromIndexShift()
 
     tx = sitk.CenteredTransformInitializer(fixed_sitk_image, moving_sitk_image,
-                                           sitk.AffineTransform(2))
+                                           sitk.Euler2DTransform())
     R.SetInitialTransform(tx)
 
     R.SetInterpolator(sitk.sitkLinear)

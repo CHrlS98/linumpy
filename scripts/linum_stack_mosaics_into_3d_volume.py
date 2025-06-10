@@ -4,7 +4,7 @@ Stack 3D mosaics into a single 3D volume saved as .ome.zarr file.
 """
 import argparse
 
-from linumpy.io.zarr import read_omezarr, save_zarr
+from linumpy.io.zarr import read_omezarr, save_omezarr
 from linumpy.utils_images import apply_xy_shift
 from linumpy.stitching.registration import register_consecutive_3d_mosaics
 
@@ -12,8 +12,6 @@ import zarr
 import dask.array as da
 import re
 
-from skimage.registration import phase_cross_correlation
-from scipy.ndimage import shift
 import numpy as np
 import pandas as pd
 
@@ -38,9 +36,6 @@ def _build_arg_parser():
                    help='Offset from interface for each volume. [%(default)s]')
     p.add_argument('--max_allowed_overlap', type=int, default=5,
                    help='Maximum allowed overlap for the alignment. [%(default)s]')
-    p.add_argument('--method', choices=['phase_cross_correlation', 'sitk_affine_2d', 'none'],
-                   default='sitk_affine_2d',
-                   help='Method to use for alignment. [%(default)s]')
     return p
 
 
@@ -88,25 +83,7 @@ def compute_volume_shape(mosaics_files, mosaics_depth,
     return volume_shape, x0, y0
 
 
-def align_phase_cross_correlation(prev_mosaic, img, max_allowed_overlap):
-    errors = []
-    shifts = []
-    for i in range(1, max_allowed_overlap+1):
-        # if the lowest error is the one at the end of
-        # previous slice, we don't need to shift anything
-        px_shift, error, _ = phase_cross_correlation(
-            prev_mosaic[-i, :, :], img[0, :, :],
-            normalization=None, disambiguate=True
-        )
-        shifts.append(px_shift)
-        errors.append(error)
-    best_offset = np.argmin(errors)  # this one starts at 0
-    px_shift = shifts[best_offset]
-    img = shift(img, (0.0, px_shift[0], px_shift[1]))
-    return img, best_offset
-
-
-def align_sitk_affine_2d(prev_mosaic, img, max_allowed_overlap):
+def align_sitk_2d(prev_mosaic, img, max_allowed_overlap):
     best_offset = 0
     min_error = np.inf
     best_warp = np.zeros(img.shape)
@@ -150,8 +127,7 @@ def main():
     dy_list /= res[-1]
 
     mosaics_depth = args.initial_search
-    volume_shape, x0, y0 = compute_volume_shape(mosaics_files,
-                                                mosaics_depth,
+    volume_shape, x0, y0 = compute_volume_shape(mosaics_files, mosaics_depth,
                                                 dx_list, dy_list)
     print(f"Output volume shape: {volume_shape}")
     print(f"Mosaic depth: {mosaics_depth} voxels")
@@ -172,7 +148,7 @@ def main():
         current_z_offset = z_offsets[-1]
 
         img, res = read_omezarr(f)
-        img = img[start_index:start_index + mosaics_depth]
+        img = img[start_index:]
 
         # Get the shift values for the slice
         dx = x0
@@ -182,7 +158,8 @@ def main():
             dy += np.cumsum(dy_list)[i - 1]
 
         # Apply the shift as an initial alignment
-        img = apply_xy_shift(img, mosaic[:mosaics_depth, :, :], dy, dx)
+        # dy and dx are inverted here to match the image coordinates
+        img = apply_xy_shift(img, mosaic[:len(img), :, :], dy, dx)
 
         # Equalize intensities
         clip_ubound = np.percentile(img, 99.9, axis=(1, 2), keepdims=True)
@@ -195,31 +172,18 @@ def main():
         if i > 0:
             prev_mosaic = mosaic[:current_z_offset]
             best_offset = 1
-            if args.method == 'phase_cross_correlation':
-                img, best_offset = align_phase_cross_correlation(
-                    prev_mosaic, img, args.max_allowed_overlap
-                )
-            elif args.method == 'sitk_affine_2d':
-                img, best_offset = align_sitk_affine_2d(
-                    prev_mosaic, img, args.max_allowed_overlap
-                )
-
-            # a bit of a hack for stacking the slice AFTER
-            # the best fit, instead of in replacement of it.
-            # TODO: Remove this s.t. the image is stacked in
-            # replacement of the best offset?
-            best_offset -= 1
-
+            img, best_offset = align_sitk_2d(prev_mosaic, img, args.max_allowed_overlap)
 
             # Add the overlapping slice to the volume
+            zmax = min(len(img), mosaic.shape[0] - current_z_offset)
             mosaic[current_z_offset - best_offset:
-                   current_z_offset+mosaics_depth-best_offset] = img[:]
+                   current_z_offset + len(img) - best_offset] = img[:zmax]
 
-            current_z_offset += len(img) - best_offset
+            current_z_offset += mosaics_depth - best_offset
 
         else:  # only true at very first iteration
-            mosaic[:mosaics_depth, :, :] = img
-            current_z_offset += len(img)
+            mosaic[:len(img), :, :] = img
+            current_z_offset += mosaics_depth
 
         z_offsets.append(current_z_offset)
 
@@ -229,8 +193,8 @@ def main():
         print(f"Z offsets saved to {args.out_offsets}")
 
     dask_arr = da.from_zarr(mosaic)
-    save_zarr(dask_arr, args.out_stack, scales=res,
-              chunks=(256, 256, 256), n_levels=3)
+    save_omezarr(dask_arr, args.out_stack, voxel_size=res,
+                 chunks=(256, 256, 256), n_levels=3)
 
     print(f"Output volume saved to {args.out_stack}")
 
