@@ -210,7 +210,7 @@ def main():
         np.save(args.out_offsets, np.array(z_offsets, dtype=np.int32))
         print(f"Z offsets saved to {args.out_offsets}")
 
-    dask_arr = da.from_zarr(mosaic)
+    dask_arr = da.from_zarr(mosaic)[:z_offsets[-1]+mosaics_depth, :, :]
     save_omezarr(dask_arr, args.out_stack, voxel_size=res,
                  chunks=(256, 256, 256), n_levels=3)
 
