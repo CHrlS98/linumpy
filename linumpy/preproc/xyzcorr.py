@@ -370,7 +370,9 @@ def getInterfaceDepthFromMask(vol):
 def findTissueInterface(
     vol, s_xy=15, s_z=2, useLog=True, mask=None, order=1, detectCuttingErrors=False
 ):
-    """Detects the tissue interface.
+    """Detects the tissue interface. In practice, works by finding the 
+    maximum derivative of the volume along the z axis. Won't work if the
+    volume has already been cropped at interface.
 
     Parameters
     ----------

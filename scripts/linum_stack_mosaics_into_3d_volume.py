@@ -122,12 +122,14 @@ def main():
     in_mosaics_dir = Path(args.in_mosaics_dir)
     mosaics_files = [p for p in in_mosaics_dir.glob('*.ome.zarr')]
     mosaics_files.sort()
-    pattern = r".*z(\d+)_.*"
+    pattern = r".*z(\d+)_.*"  # the parentheses create a group containing the slice id
     slice_ids = []
     cleaned_mosaics_files = []
     for f in mosaics_files:
-        foo = re.match(pattern, f.name)
-        id = int(foo.groups()[0])
+        match = re.match(pattern, f.name)
+        # the only group found is the slice id
+        id = int(match.groups()[0])
+        # optionally exclude slices
         if id not in args.exclude:
             slice_ids.append(id)
             cleaned_mosaics_files.append(f)

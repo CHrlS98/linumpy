@@ -9,8 +9,9 @@ the OCT reflectivity data.
 import argparse
 
 import numpy as np
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter1d
 
+from linumpy.preproc.xyzcorr import findTissueInterface
 from linumpy.preproc.icorr import get_extendedAttenuation_Vermeer2013
 from linumpy.io.zarr import read_omezarr, save_omezarr
 
@@ -43,34 +44,30 @@ def main():
 
     # Loading the data
     zarr_vol, res = read_omezarr(args.input, level=0)
+    attn = None
+    vol = zarr_vol[:]
 
-    # TODO: Change behaviour of attenuation estimation method
-    # to avoid having to swap the axes
-    vol = np.moveaxis(zarr_vol, (0, 1, 2), (2, 1, 0))
+    # Step 1. Detect the tissue interface
+    # Compute image gradient along a-lines using 1st order derivative of Gaussian
+    dz = gaussian_filter1d(vol[:], sigma=args.s_z, order=1,
+                               axis=0, mode='constant')
+    interface_index = np.argmax(dz, axis=0)
+    zz, _, _ = np.meshgrid(np.arange(dz.shape[0]),
+                           np.arange(dz.shape[1]),
+                           np.arange(dz.shape[2]),
+                           indexing='ij')
+    mask = zz >= interface_index
+    vol[~mask] = 0
 
-    # resolution is expected to be in microns
-    res_axial_microns = res[0] * 1000
+    import matplotlib.pyplot as plt
+    all_alines = np.reshape(vol, (vol.shape[0], -1)).T
+    from tqdm import tqdm
+    for aline in tqdm(all_alines[:100000]):
+        plt.plot(aline)
+    plt.show()
 
-    mask = None
-    if args.mask is not None:
-        mask_zarr, _ = read_omezarr(args.mask, level=0)
-        mask = np.moveaxis(mask_zarr, (0, 1, 2), (2, 1, 0)).astype(bool)
-
-    # Preprocessing
-    vol = gaussian_filter(vol, sigma=(args.s_xy, args.s_xy, args.s_z))
-
-    # Computing the attenuation using the Vermeer Method
-    # TODO: If there is a 1.0e-6 multiplier it means dz is
-    # expected to be given in meters. However, from docstring
-    # the resolution appears to be expected in microns also.
-    attn = get_extendedAttenuation_Vermeer2013(vol, mask=mask, k=0,
-                                               res=res_axial_microns,
-                                               fillHoles=True, zshift=10)
-
-    # Saving the attenuation
-    attn = np.moveaxis(attn, (0, 1, 2), (2, 1, 0))
-    save_omezarr(attn.astype(np.float32), args.output,
-              voxel_size=res, chunks=zarr_vol.chunks)
+    # save_omezarr(attn.astype(np.float32), args.output,
+    #           voxel_size=res, chunks=zarr_vol.chunks)
 
 
 if __name__ == "__main__":
