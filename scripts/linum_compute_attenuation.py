@@ -10,11 +10,13 @@ import argparse
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
+from scipy.optimize import curve_fit
 
 from linumpy.preproc.xyzcorr import findTissueInterface
 from linumpy.preproc.icorr import get_extendedAttenuation_Vermeer2013
 from linumpy.io.zarr import read_omezarr, save_omezarr
 
+import matplotlib.pyplot as plt
 
 def _build_arg_parser():
     p = argparse.ArgumentParser(
@@ -37,6 +39,10 @@ def _build_arg_parser():
     return p
 
 
+def exponential_decay(x, n0, lambd):
+    return n0 * np.exp(-lambd * x)
+
+
 def main():
     # Parse arguments
     p = _build_arg_parser()
@@ -50,7 +56,7 @@ def main():
     # Step 1. Detect the tissue interface
     # Compute image gradient along a-lines using 1st order derivative of Gaussian
     dz = gaussian_filter1d(vol[:], sigma=args.s_z, order=1,
-                               axis=0, mode='constant')
+                           axis=0, mode='constant')
     interface_index = np.argmax(dz, axis=0)
     zz, _, _ = np.meshgrid(np.arange(dz.shape[0]),
                            np.arange(dz.shape[1]),
@@ -59,15 +65,17 @@ def main():
     mask = zz >= interface_index
     vol[~mask] = 0
 
-    import matplotlib.pyplot as plt
-    all_alines = np.reshape(vol, (vol.shape[0], -1)).T
-    from tqdm import tqdm
-    for aline in tqdm(all_alines[:100000]):
-        plt.plot(aline)
-    plt.show()
+    contains_tissue = np.sum(vol, axis=(1, 2)) > 0
+    true_depth = vol.shape[0] - np.flatnonzero(np.cumsum(contains_tissue[::-1], dtype=int) == 1)[0]
 
-    # save_omezarr(attn.astype(np.float32), args.output,
-    #           voxel_size=res, chunks=zarr_vol.chunks)
+    # remove bias such that the amplitude at bottom of the volume is 0
+    vol = vol - vol[true_depth - 1]
+    vol = np.clip(vol, 0, None)
+
+    # TODO: compute attenuation using the Vermeer 2013 method
+
+    save_omezarr(vol.astype(np.float32), args.output,
+                 voxel_size=res, chunks=zarr_vol.chunks)
 
 
 if __name__ == "__main__":
