@@ -50,31 +50,28 @@ def main():
 
     # Loading the data
     zarr_vol, res = read_omezarr(args.input, level=0)
-    attn = None
     vol = zarr_vol[:]
-
-    # Step 1. Detect the tissue interface
-    # Compute image gradient along a-lines using 1st order derivative of Gaussian
-    dz = gaussian_filter1d(vol[:], sigma=args.s_z, order=1,
-                           axis=0, mode='constant')
-    interface_index = np.argmax(dz, axis=0)
-    zz, _, _ = np.meshgrid(np.arange(dz.shape[0]),
-                           np.arange(dz.shape[1]),
-                           np.arange(dz.shape[2]),
-                           indexing='ij')
-    mask = zz >= interface_index
-    vol[~mask] = 0
 
     contains_tissue = np.sum(vol, axis=(1, 2)) > 0
     true_depth = vol.shape[0] - np.flatnonzero(np.cumsum(contains_tissue[::-1], dtype=int) == 1)[0]
 
-    # remove bias such that the amplitude at bottom of the volume is 0
-    vol = vol - vol[true_depth - 1]
+    # remove bias such that the amplitude at the end of each a-line equals 0
+    vol = vol - np.min(vol[:true_depth], axis=0)
+
+    # echoes can result in voxels with 0 intensity on top slice.
     vol = np.clip(vol, 0, None)
 
     # TODO: compute attenuation using the Vermeer 2013 method
+    attenuation = np.zeros_like(vol)
 
-    save_omezarr(vol.astype(np.float32), args.output,
+    # u[i] = log( 1 + I[i] / sum_{j = i+1}^{true_depth}I[j])
+    sum_j = np.roll(np.cumsum(gaussian_filter1d(vol[::-1], axis=0, sigma=0.5), axis=0)[::-1], -1, axis=0)
+    sum_j[-1] = 0
+    
+    # a-lines should be processed independently
+    attenuation[sum_j > 0] = 1 / (20 * res[0]) * np.log(1 + vol[sum_j > 0] / sum_j[sum_j > 0])  # cm^-1
+
+    save_omezarr(attenuation.astype(np.float32), args.output,
                  voxel_size=res, chunks=zarr_vol.chunks)
 
 
