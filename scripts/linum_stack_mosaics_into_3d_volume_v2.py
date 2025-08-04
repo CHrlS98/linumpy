@@ -9,6 +9,8 @@ import dask.array as da
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
+from scipy.ndimage import gaussian_filter
+from skimage.filters import threshold_otsu
 
 from linumpy.io.zarr import read_omezarr, save_omezarr
 from linumpy.utils_images import apply_xy_shift
@@ -25,6 +27,9 @@ def _build_arg_parser():
                    help="Path to the output stack.")
     p.add_argument("--slicing_offset", type=float, default=0.2,
                    help="Offset between slices in mm. [%(default)s]")
+    p.add_argument("--sigma", type=float, default=0.030,
+                   help="Gaussian smoothing sigma (mm) for "
+                   "image boundary detection. [%(default)s]")
     return p
 
 
@@ -95,7 +100,8 @@ def main():
 
     # assume that the resolution is the same for all slices
     img, res = read_omezarr(mosaics_files[slice_ids[0]])
-    # order (z, y, x)?
+
+    # order (z, x, y)
     dx_list /= res[1]
     dy_list /= res[2]
 
@@ -103,12 +109,13 @@ def main():
     volume_shape, x0, y0 = compute_volume_shape(mosaics_files, offset_vox,
                                                 dx_list, dy_list)
 
+    sigma_vox = args.sigma / res[0]
+    xmin, xmax = None, None
+    ymin, ymax = None, None
     output_store = zarr.TempStore()
     output_stack = zarr.open(output_store, mode="w", shape=volume_shape,
                              dtype=img.dtype, chunks=(256, 256, 256))
     for i, f in enumerate(tqdm(mosaics_files)):
-        if i == 6:
-            continue
         vol, _ = read_omezarr(f)
         vol = vol[3:]  # small offset to avoid incomplete slices at interface
         z_offset = i * offset_vox
@@ -119,11 +126,26 @@ def main():
             dy += np.cumsum(dy_list)[i - 1]
         # dy and dx must be swapped because sitk inverts the order of the axes
         vol = apply_xy_shift(vol, output_stack[:, :, :], dy, dx)
+
+        aip = np.mean(vol, axis=0)
+        smooth_aip = gaussian_filter(aip, sigma=sigma_vox) > threshold_otsu(aip[aip > 0])
+        idx, idy = np.nonzero(smooth_aip)
+        minx = idx.min()
+        maxx = idx.max()
+        miny = idy.min()
+        maxy = idy.max()
+        xmin = minx if xmin is None else min(xmin, minx)
+        xmax = maxx if xmax is None else max(xmax, maxx)
+        ymin = miny if ymin is None else min(ymin, miny)
+        ymax = maxy if ymax is None else max(ymax, maxy)
+        print(f"Slice {i}: minx={minx}, maxx={maxx}, miny={miny}, maxy={maxy}")
+
         depth = min(vol.shape[0], output_stack.shape[0] - z_offset)
-        # print(depth)
         output_stack[z_offset:z_offset + depth, :, :] = vol[:depth]
 
-    save_omezarr(da.from_zarr(output_stack), args.out_stack, voxel_size=res, chunks=output_stack.chunks, n_levels=5)
+    dask_out = da.from_zarr(output_stack)
+    save_omezarr(dask_out[:, xmin:xmax, ymin:ymax], args.out_stack, voxel_size=res,
+                 chunks=output_stack.chunks, n_levels=5)
 
 
 if __name__ == "__main__":
