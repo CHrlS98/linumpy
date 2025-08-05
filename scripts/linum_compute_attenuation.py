@@ -28,6 +28,8 @@ def _build_arg_parser():
     # Optional argument
     p.add_argument("-m", "--mask", default=None,
                    help="Optional tissue mask (.ome.zarr)")
+    p.add_argument('--mask_all', action='store_true',
+                   help='If set, use the entire volume for attenuation computation.')
     p.add_argument("--s_xy", default=0.0, type=float,
                    help="Lateral smoothing sigma (default=%(default)s)")
     p.add_argument("--s_z", default=5.0, type=float,
@@ -55,6 +57,8 @@ def main():
     if args.mask is not None:
         mask_zarr, _ = read_omezarr(args.mask, level=0)
         mask = np.moveaxis(mask_zarr, (0, 1, 2), (2, 1, 0)).astype(bool)
+    if args.mask_all:
+        mask = np.ones(vol.shape, dtype=bool)
 
     # Preprocessing
     vol = gaussian_filter(vol, sigma=(args.s_xy, args.s_xy, args.s_z))
