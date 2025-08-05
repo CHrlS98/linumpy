@@ -25,8 +25,10 @@ def _build_arg_parser():
                    help="Path to the file containing the XY shifts.")
     p.add_argument("out_stack",
                    help="Path to the output stack.")
-    p.add_argument("--slicing_offset", type=float, default=0.2,
-                   help="Offset between slices in mm. [%(default)s]")
+    p.add_argument("--slicing_interval", type=float, default=0.2,
+                   help="Interval between slices in mm. [%(default)s]")
+    p.add_argument('--stacking_offset', type=float, default=0.030,
+                   help='Skip this many mm at the beginning of each mosaic. [%(default)s]')
     p.add_argument("--sigma", type=float, default=0.030,
                    help="Gaussian smoothing sigma (mm) for "
                    "image boundary detection. [%(default)s]")
@@ -95,8 +97,8 @@ def main():
 
     # We load the shifts in mm, but we need to convert them to pixels
     # The shifts are only useful for computing the out shape
-    dx_list = np.array(df["x_shift_mm"].tolist())
-    dy_list = np.array(df["y_shift_mm"].tolist())
+    dx_list = np.array(df["x_shift_mm"].tolist(), dtype=float)
+    dy_list = np.array(df["y_shift_mm"].tolist(), dtype=float)
 
     # assume that the resolution is the same for all slices
     img, res = read_omezarr(mosaics_files[slice_ids[0]])
@@ -105,9 +107,14 @@ def main():
     dx_list /= res[1]
     dy_list /= res[2]
 
-    offset_vox = int(args.slicing_offset / res[0])  # in voxels
-    volume_shape, x0, y0 = compute_volume_shape(mosaics_files, offset_vox,
+    dx_cumsum = np.append([0], np.cumsum(dx_list))
+    dy_cumsum = np.append([0], np.cumsum(dy_list))
+
+    interval_vox = int(args.slicing_interval / res[0])  # in voxels
+    volume_shape, x0, y0 = compute_volume_shape(mosaics_files, interval_vox,
                                                 dx_list, dy_list)
+
+    offset_vox = int(args.stacking_offset / res[0])  # in voxels
 
     sigma_vox = args.sigma / res[0]
     xmin, xmax = None, None
@@ -117,28 +124,27 @@ def main():
                              dtype=img.dtype, chunks=(256, 256, 256))
     for i, f in enumerate(tqdm(mosaics_files)):
         vol, _ = read_omezarr(f)
-        vol = vol[3:]  # small offset to avoid incomplete slices at interface
-        z_offset = i * offset_vox
-        dx = x0
-        dy = y0
-        if i > 0:
-            dx += np.cumsum(dx_list)[i - 1]
-            dy += np.cumsum(dy_list)[i - 1]
+        vol = vol[offset_vox:]  # small offset to avoid incomplete slices at interface
+        z_offset = i * interval_vox
+        dx = x0 + dx_cumsum[i]
+        dy = y0 + dy_cumsum[i]
+
         # dy and dx must be swapped because sitk inverts the order of the axes
         vol = apply_xy_shift(vol, output_stack[:, :, :], dy, dx)
 
         aip = np.mean(vol, axis=0)
-        smooth_aip = gaussian_filter(aip, sigma=sigma_vox) > threshold_otsu(aip[aip > 0])
-        idx, idy = np.nonzero(smooth_aip)
-        minx = idx.min()
-        maxx = idx.max()
-        miny = idy.min()
-        maxy = idy.max()
-        xmin = minx if xmin is None else min(xmin, minx)
-        xmax = maxx if xmax is None else max(xmax, maxx)
-        ymin = miny if ymin is None else min(ymin, miny)
-        ymax = maxy if ymax is None else max(ymax, maxy)
-        print(f"Slice {i}: minx={minx}, maxx={maxx}, miny={miny}, maxy={maxy}")
+        otsu = threshold_otsu(aip[aip > 0])
+        smooth_aip = gaussian_filter(aip, sigma=sigma_vox)
+        aip_mask = smooth_aip > otsu
+        idx, idy = np.nonzero(aip_mask)
+        curr_xmin = idx.min()
+        curr_xmax = idx.max()
+        curr_ymin = idy.min()
+        curr_ymax = idy.max()
+        xmin = curr_xmin if xmin is None else min(xmin, curr_xmin)
+        xmax = curr_xmax if xmax is None else max(xmax, curr_xmax)
+        ymin = curr_ymin if ymin is None else min(ymin, curr_ymin)
+        ymax = curr_ymax if ymax is None else max(ymax, curr_ymax)
 
         depth = min(vol.shape[0], output_stack.shape[0] - z_offset)
         output_stack[z_offset:z_offset + depth, :, :] = vol[:depth]
