@@ -9,14 +9,11 @@ the OCT reflectivity data.
 import argparse
 
 import numpy as np
-from scipy.ndimage import gaussian_filter1d
-from scipy.optimize import curve_fit
+from scipy.ndimage import gaussian_filter
 
-from linumpy.preproc.xyzcorr import findTissueInterface
 from linumpy.preproc.icorr import get_extendedAttenuation_Vermeer2013
 from linumpy.io.zarr import read_omezarr, save_omezarr
 
-import matplotlib.pyplot as plt
 
 def _build_arg_parser():
     p = argparse.ArgumentParser(
@@ -39,10 +36,6 @@ def _build_arg_parser():
     return p
 
 
-def exponential_decay(x, n0, lambd):
-    return n0 * np.exp(-lambd * x)
-
-
 def main():
     # Parse arguments
     p = _build_arg_parser()
@@ -50,29 +43,34 @@ def main():
 
     # Loading the data
     zarr_vol, res = read_omezarr(args.input, level=0)
-    vol = zarr_vol[:]
 
-    contains_tissue = np.sum(vol, axis=(1, 2)) > 0
-    true_depth = vol.shape[0] - np.flatnonzero(np.cumsum(contains_tissue[::-1], dtype=int) == 1)[0]
+    # TODO: Change behaviour of attenuation estimation method
+    # to avoid having to swap the axes
+    vol = np.moveaxis(zarr_vol, (0, 1, 2), (2, 1, 0))
 
-    # remove bias such that the amplitude at the end of each a-line equals 0
-    vol = vol - np.min(vol[:true_depth], axis=0)
+    # resolution is expected to be in microns
+    res_axial_microns = res[0] * 1000
 
-    # echoes can result in voxels with 0 intensity on top slice.
-    vol = np.clip(vol, 0, None)
+    mask = None
+    if args.mask is not None:
+        mask_zarr, _ = read_omezarr(args.mask, level=0)
+        mask = np.moveaxis(mask_zarr, (0, 1, 2), (2, 1, 0)).astype(bool)
 
-    # TODO: compute attenuation using the Vermeer 2013 method
-    attenuation = np.zeros_like(vol)
+    # Preprocessing
+    vol = gaussian_filter(vol, sigma=(args.s_xy, args.s_xy, args.s_z))
 
-    # u[i] = log( 1 + I[i] / sum_{j = i+1}^{true_depth}I[j])
-    sum_j = np.roll(np.cumsum(gaussian_filter1d(vol[::-1], axis=0, sigma=0.5), axis=0)[::-1], -1, axis=0)
-    sum_j[-1] = 0
-    
-    # a-lines should be processed independently
-    attenuation[sum_j > 0] = 1 / (20 * res[0]) * np.log(1 + vol[sum_j > 0] / sum_j[sum_j > 0])  # cm^-1
+    # Computing the attenuation using the Vermeer Method
+    # TODO: If there is a 1.0e-6 multiplier it means dz is
+    # expected to be given in meters. However, from docstring
+    # the resolution appears to be expected in microns also.
+    attn = get_extendedAttenuation_Vermeer2013(vol, mask=mask, k=0,
+                                               res=res_axial_microns,
+                                               fillHoles=True, zshift=10)
 
-    save_omezarr(attenuation.astype(np.float32), args.output,
-                 voxel_size=res, chunks=zarr_vol.chunks)
+    # Saving the attenuation
+    attn = np.moveaxis(attn, (0, 1, 2), (2, 1, 0))
+    save_omezarr(attn.astype(np.float32), args.output,
+              voxel_size=res, chunks=zarr_vol.chunks)
 
 
 if __name__ == "__main__":
