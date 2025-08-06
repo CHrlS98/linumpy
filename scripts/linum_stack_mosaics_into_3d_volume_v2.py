@@ -25,8 +25,10 @@ def _build_arg_parser():
                    help="Path to the file containing the XY shifts.")
     p.add_argument("out_stack",
                    help="Path to the output stack.")
-    p.add_argument("--slicing_interval", type=float, default=0.2,
+    p.add_argument("--slicing_interval", type=float, default=0.200,
                    help="Interval between slices in mm. [%(default)s]")
+    p.add_argument("--factor_extra", type=float, default=1.1,
+                   help='Factor by which to increase the stacking interval. [%(default)s]')
     p.add_argument('--stacking_offset', type=float, default=0.030,
                    help='Skip this many mm at the beginning of each mosaic. [%(default)s]')
     p.add_argument("--sigma", type=float, default=0.030,
@@ -110,7 +112,7 @@ def main():
     dx_cumsum = np.append([0], np.cumsum(dx_list))
     dy_cumsum = np.append([0], np.cumsum(dy_list))
 
-    interval_vox = int(args.slicing_interval / res[0])  # in voxels
+    interval_vox = int(np.ceil(args.slicing_interval*args.factor_extra / res[0]))  # in voxels
     volume_shape, x0, y0 = compute_volume_shape(mosaics_files, interval_vox,
                                                 dx_list, dy_list)
 
@@ -150,7 +152,8 @@ def main():
         output_stack[z_offset:z_offset + depth, :, :] = vol[:depth]
 
     dask_out = da.from_zarr(output_stack)
-    save_omezarr(dask_out[:, xmin:xmax, ymin:ymax], args.out_stack, voxel_size=res,
+    save_omezarr(dask_out[:, xmin:xmax, ymin:ymax],
+                 args.out_stack, voxel_size=res,
                  chunks=output_stack.chunks, n_levels=5)
 
 
