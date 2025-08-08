@@ -25,11 +25,15 @@ def _build_arg_parser():
                    help="Path to the file containing the XY shifts.")
     p.add_argument("out_stack",
                    help="Path to the output stack.")
+    p.add_argument("out_offsets",
+                   help="Path to the output offsets file (.npy).")
+    p.add_argument('--exclude', nargs='+', type=int,
+                   help="Slices to exclude from reconstruction.")
     p.add_argument("--slicing_interval", type=float, default=0.200,
                    help="Interval between slices in mm. [%(default)s]")
     p.add_argument("--factor_extra", type=float, default=1.1,
                    help='Factor by which to increase the stacking interval. [%(default)s]')
-    p.add_argument('--stacking_offset', type=float, default=0.030,
+    p.add_argument('--stacking_offset', type=float, default=0.050,
                    help='Skip this many mm at the beginning of each mosaic. [%(default)s]')
     p.add_argument("--sigma", type=float, default=0.030,
                    help="Gaussian smoothing sigma (mm) for "
@@ -73,9 +77,7 @@ def compute_volume_shape(mosaics_files, mosaics_depth,
     nx = int((x1 - x0))
     ny = int((y1 - y0))
 
-    # Important!!! The +1 is to make sure that the last mosaic
-    # fits in the volume for the case where the best offset is always 1
-    volume_shape = (mosaics_depth*len(mosaics_files) + 1, nx, ny)
+    volume_shape = (mosaics_depth*len(mosaics_files), nx, ny)
     return volume_shape, x0, y0
 
 
@@ -112,9 +114,13 @@ def main():
     dx_cumsum = np.append([0], np.cumsum(dx_list))
     dy_cumsum = np.append([0], np.cumsum(dy_list))
 
-    interval_vox = int(np.ceil(args.slicing_interval*args.factor_extra / res[0]))  # in voxels
-    volume_shape, x0, y0 = compute_volume_shape(mosaics_files, interval_vox,
+    interval_vox = int(np.ceil(args.slicing_interval / res[0]))  # in voxels
+    n_overlap_vox = int(interval_vox * (args.factor_extra - 1.0))  # in voxels
+    volume_shape, x0, y0 = compute_volume_shape(mosaics_files, interval_vox + n_overlap_vox,
                                                 dx_list, dy_list)
+    print(f"Requested interval: {args.slicing_interval} mm")
+    print(f"Stacking interval: {interval_vox} voxels")
+    print(f"Overlap: {n_overlap_vox} voxels")
 
     offset_vox = int(args.stacking_offset / res[0])  # in voxels
 
@@ -124,10 +130,16 @@ def main():
     output_store = zarr.TempStore()
     output_stack = zarr.open(output_store, mode="w", shape=volume_shape,
                              dtype=img.dtype, chunks=(256, 256, 256))
-    for i, f in enumerate(tqdm(mosaics_files)):
+    z_offsets = [0]
+    for i, f in enumerate(tqdm(mosaics_files, desc="Stacking slices")):
+        # Skip excluded slices
+        if args.exclude is not None and i in args.exclude:
+            z_offsets[-1] = z_offsets[-1] + interval_vox
+            continue
+
+        # Load the slice
         vol, _ = read_omezarr(f)
         vol = vol[offset_vox:]  # small offset to avoid incomplete slices at interface
-        z_offset = i * interval_vox
         dx = x0 + dx_cumsum[i]
         dy = y0 + dy_cumsum[i]
 
@@ -148,9 +160,11 @@ def main():
         ymin = curr_ymin if ymin is None else min(ymin, curr_ymin)
         ymax = curr_ymax if ymax is None else max(ymax, curr_ymax)
 
-        depth = min(vol.shape[0], output_stack.shape[0] - z_offset)
-        output_stack[z_offset:z_offset + depth, :, :] = vol[:depth]
+        depth = min(vol.shape[0], output_stack.shape[0] - z_offsets[-1])
+        output_stack[z_offsets[-1]:z_offsets[-1] + depth, :, :] = vol[:depth]
+        z_offsets.append(z_offsets[-1] + interval_vox + n_overlap_vox)
 
+    np.save(args.out_offsets, np.array(z_offsets[:-1], dtype=int))
     dask_out = da.from_zarr(output_stack)
     save_omezarr(dask_out[:, xmin:xmax, ymin:ymax],
                  args.out_stack, voxel_size=res,
