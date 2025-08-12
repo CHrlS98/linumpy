@@ -8,21 +8,15 @@ nextflow.enable.dsl = 2
 
 // Parameters
 params.input = ""
-params.output = ""
+params.output = "output"
 params.resolution = 10 // Resolution of the reconstruction in micron/pixel
 params.processes = 1 // Maximum number of python processes per nextflow process
-params.depth_offset = 4 // Skip this many voxels from the top of the 3d mosaic
-params.initial_search = 25 // Initial search index for mosaics stacking
-params.max_allowed_overlap = 10 // Slices are allowed to shift up to this many voxels from the initial search index
 params.axial_resolution = 1.5 // Axial resolution of imaging system in microns
 params.crop_interface_out_depth = 600 // Minimum depth of the cropped image in microns
 params.use_old_folder_structure = false // Use the old folder structure where tiles are not stored in subfolders based on their Z
-params.method = "euler" // Method for stitching, can be 'euler' or 'affine'
-params.learning_rate = 2.0 // Learning rate for the 3D stacking algorithm
-params.min_step = 1e-12 // Minimum step size for the 3D stacking algorithm
-params.n_iterations = 10000 // Number of iterations for the 3D stacking algorithm
+params.method = "affine" // Method for stitching, can be 'euler' or 'affine'
 params.grad_mag_tolerance = 1e-12 // Gradient magnitude tolerance for the 3D stacking algorithm
-params.metric = "MSE" // Metric for the 3D stacking algorithm, can be 'MSE' or 'CC'
+params.metric = "MI" // Metric for the 3D stacking algorithm
 
 // Processes
 process create_mosaic_grid {
@@ -102,6 +96,19 @@ process beam_profile_correction {
     """
 }
 
+process attenuation_correction {
+    input:
+        tuple val(slice_id), path(slice_3d)
+    output:
+        tuple val(slice_id), path("slice_z${slice_id}_${params.resolution}um_attn_corr.ome.zarr")
+    script:
+    """
+    linum_compute_attenuation.py ${slice_3d} "slice_z${slice_id}_${params.resolution}um_attn.ome.zarr" --mask_all
+    linum_compute_attenuation_bias_field.py "slice_z${slice_id}_${params.resolution}um_attn.ome.zarr" "slice_z${slice_id}_${params.resolution}um_attn_bias.ome.zarr" --isInCM
+    linum_compensate_attenuation.py "slice_z${slice_id}_${params.resolution}um_attn.ome.zarr" "slice_z${slice_id}_${params.resolution}um_attn_bias.ome.zarr" "slice_z${slice_id}_${params.resolution}um_attn_corr.ome.zarr"
+    """
+}
+
 process estimate_xy_shifts_from_metadata {
     publishDir "$params.output/$task.process"
     input:
@@ -114,18 +121,6 @@ process estimate_xy_shifts_from_metadata {
     """
 }
 
-process stack_mosaics_into_3d_volume {
-    publishDir "$params.output/$task.process"
-    input:
-        tuple path("inputs/*"), path("shifts_xy.csv")
-    output:
-        path("3d_volume.ome.zarr")
-    script:
-    """
-    linum_stack_mosaics_into_3d_volume.py inputs shifts_xy.csv 3d_volume.ome.zarr --initial_search $params.initial_search --depth_offset $params.depth_offset --max_allowed_overlap $params.max_allowed_overlap  --out_offsets 3d_volume_offsets.npy --method ${params.method} --metric ${params.metric} --learning_rate ${params.learning_rate} --min_step ${params.min_step} --n_iterations ${params.n_iterations} --grad_mag_tolerance ${params.grad_mag_tolerance}
-    """
-}
-
 process crop_interface {
     input:
         tuple val(slice_id), path(image)
@@ -134,6 +129,29 @@ process crop_interface {
     script:
     """
     linum_crop_3d_mosaic_below_interface.py $image "slice_z${slice_id}_${params.resolution}um_crop.ome.zarr" --depth $params.crop_interface_out_depth --crop_before_interface --pad_after
+    """
+}
+
+process stack_mosaics_into_3d_volume {
+    publishDir "$params.output/$task.process"
+    input:
+        tuple path("inputs/*"), path("shifts_xy.csv")
+    output:
+        tuple path("3d_stack_mosaic_${params.resolution}um.ome.zarr"), path("3d_stack_mosaic_${params.resolution}um_offsets.npy")
+    script:
+    """
+    linum_stack_mosaics_into_3d_volume_v2.py inputs shifts_xy.csv 3d_stack_mosaic_${params.resolution}um.ome.zarr 3d_stack_mosaic_${params.resolution}um_offsets.npy
+    """
+}
+
+process estimate_pairwise_transform {
+    input:
+        tuple val(slice_id), path(volume), path(offsets), val(min_ind)
+    output:
+        tuple val(slice_id), path("slice_z${slice_id}_transform.mat"), path("slice_z${slice_id}_pairwise_transform.png")
+    script:
+    """
+    linum_estimate_transform_pairwise.py ${volume} ${offsets} ${slice_id} slice_z${slice_id}_transform.mat --first_slice_index ${min_ind} --method ${params.method} --metric ${params.metric} --screenshot slice_z${slice_id}_pairwise_transform.png
     """
 }
 
@@ -176,17 +194,37 @@ workflow {
     // Crop at interface
     crop_interface(stitch_3d.out)
 
-    // TODO: PSF and depth correction
+    // PSF correction
     beam_profile_correction(crop_interface.out)
 
-    // Slices stitching
-    stack_in_channel = beam_profile_correction.out
-        .toSortedList{a, b -> a[0] <=> b[0]}
-        .flatten()
-        .collate(2)
-        .map{_meta, filename -> filename}
-        .collect()
-        .merge(estimate_xy_shifts_from_metadata.out){a, b -> tuple(a, b)}
+    // Attenuation correction
+    attenuation_correction(beam_profile_correction.out)
 
+    // 3D mosaic
+    stack_in_channel = attenuation_correction.out
+        .toSortedList{a, b -> a[0] <=> b[0]}
+        .flatten().collate(2)
+        .map{_meta, filename -> filename}.collect()
+        .merge(estimate_xy_shifts_from_metadata.out){a, b -> tuple(a, b)}
     stack_mosaics_into_3d_volume(stack_in_channel)
+
+    min_indice = inputSlices.map{meta, _files -> meta}.min().toInteger()
+
+    // Collect slice IDs for the pairwise transforms
+    estimate_pairwise_channel = attenuation_correction.out
+        .map{meta, _filename -> meta}
+        .filter{v -> v as Integer != min_indice.val}
+        .combine(stack_mosaics_into_3d_volume.out)
+        .combine(min_indice)
+
+    // Estimate pairwise transforms
+    estimate_pairwise_transform(estimate_pairwise_channel)
+
+    // Use transforms to align the 3D volume
+    estimate_pairwise_transform.out
+        .collectFile(name: 'results.csv', sort: {a, b -> a[0] <=> b[0]}, newLine: true) {["results.csv", "${it[0]},${it[1]}"]}
+        .subscribe { file ->
+            println "Entries are saved to file: $file"
+            println "File content is: ${file.text}"
+        }
 }

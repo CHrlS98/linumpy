@@ -105,7 +105,7 @@ def main():
     dy_list = np.array(df["y_shift_mm"].tolist(), dtype=float)
 
     # assume that the resolution is the same for all slices
-    img, res = read_omezarr(mosaics_files[slice_ids[0]])
+    img, res = read_omezarr(mosaics_files[0])
 
     # order (z, x, y)
     dx_list /= res[1]
