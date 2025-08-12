@@ -222,9 +222,5 @@ workflow {
 
     // Use transforms to align the 3D volume
     estimate_pairwise_transform.out
-        .collectFile(name: 'results.csv', sort: {a, b -> a[0] <=> b[0]}, newLine: true) {["results.csv", "${it[0]},${it[1]}"]}
-        .subscribe { file ->
-            println "Entries are saved to file: $file"
-            println "File content is: ${file.text}"
-        }
+        .collectFile(name: 'pairwise_transforms.csv', sort: {a, b -> a[0] <=> b[0]}, newLine: true, storeDir: "$params.output") {["pairwise_transforms.csv", "${it[0]},${it[1]}"]}
 }
