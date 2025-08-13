@@ -98,7 +98,7 @@ process beam_profile_correction {
 
 // TODO: Use omezarr for attenuation correction (lower memory usage)
 process attenuation_correction {
-    maxForks 1
+    maxForks 4
     input:
         tuple val(slice_id), path(slice_3d)
     output:
