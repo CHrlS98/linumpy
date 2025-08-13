@@ -21,7 +21,8 @@ def _build_arg_parser():
                    help="Input OCT directory. This should contain image_*.bin and info.txt files")
     p.add_argument("output",
                    help="Output nifti filename")
-
+    p.add_argument("--axial_resolution", type=float, default=1.5,
+                   help="Axial resolution in microns. [%(default)s]")
     return p
 
 
@@ -50,7 +51,7 @@ def main():
     # Prepare the affine matrix
     res_x_um = oct.info['width'] / oct.info['nx']
     res_y_um = oct.info['height'] / oct.info['ny']
-    res_z_um = 3.5  # TODO: add the axial resolution to the oct scan info file.
+    res_z_um = args.axial_resolution  # TODO: add the axial resolution to the oct scan info file.
     affine = np.eye(4)
     affine[0, 0] = res_x_um
     affine[1, 1] = res_y_um
