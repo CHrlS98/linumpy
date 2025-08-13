@@ -96,7 +96,9 @@ process beam_profile_correction {
     """
 }
 
+// TODO: Use omezarr for attenuation correction (lower memory usage)
 process attenuation_correction {
+    maxForks 1
     input:
         tuple val(slice_id), path(slice_3d)
     output:
@@ -105,7 +107,7 @@ process attenuation_correction {
     """
     linum_compute_attenuation.py ${slice_3d} "slice_z${slice_id}_${params.resolution}um_attn.ome.zarr" --mask_all
     linum_compute_attenuation_bias_field.py "slice_z${slice_id}_${params.resolution}um_attn.ome.zarr" "slice_z${slice_id}_${params.resolution}um_attn_bias.ome.zarr" --isInCM
-    linum_compensate_attenuation.py "slice_z${slice_id}_${params.resolution}um_attn.ome.zarr" "slice_z${slice_id}_${params.resolution}um_attn_bias.ome.zarr" "slice_z${slice_id}_${params.resolution}um_attn_corr.ome.zarr"
+    linum_compensate_attenuation.py ${slice_3d} "slice_z${slice_id}_${params.resolution}um_attn_bias.ome.zarr" "slice_z${slice_id}_${params.resolution}um_attn_corr.ome.zarr"
     """
 }
 
@@ -152,6 +154,18 @@ process estimate_pairwise_transform {
     script:
     """
     linum_estimate_transform_pairwise.py ${volume} ${offsets} ${slice_id} slice_z${slice_id}_transform.mat --first_slice_index ${min_ind} --method ${params.method} --metric ${params.metric} --screenshot slice_z${slice_id}_pairwise_transform.png
+    """
+}
+
+process apply_transforms_to_stack {
+    publishDir "$params.output/$task.process"
+    input:
+        tuple path("inputs/*"), path(volume), path(offsets), val(min_ind)
+    output:
+        path("3d_stack_${params.resolution}um_aligned.ome.zarr")
+    script:
+    """
+    linum_apply_transforms_to_stack.py ${volume} ${offsets} inputs 3d_stack_${params.resolution}um_aligned.ome.zarr --first_slice_index ${min_ind}
     """
 }
 
@@ -208,11 +222,11 @@ workflow {
         .merge(estimate_xy_shifts_from_metadata.out){a, b -> tuple(a, b)}
     stack_mosaics_into_3d_volume(stack_in_channel)
 
-    min_indice = inputSlices.map{meta, _files -> meta}.min().toInteger()
+    all_indices = inputSlices.map{meta, _files -> meta}
+    min_indice = all_indices.min().toInteger()
 
     // Collect slice IDs for the pairwise transforms
-    estimate_pairwise_channel = attenuation_correction.out
-        .map{meta, _filename -> meta}
+    estimate_pairwise_channel = all_indices
         .filter{v -> v as Integer != min_indice.val}
         .combine(stack_mosaics_into_3d_volume.out)
         .combine(min_indice)
@@ -221,6 +235,11 @@ workflow {
     estimate_pairwise_transform(estimate_pairwise_channel)
 
     // Use transforms to align the 3D volume
-    estimate_pairwise_transform.out
-        .collectFile(name: 'pairwise_transforms.csv', sort: {a, b -> a[0] <=> b[0]}, newLine: true, storeDir: "$params.output") {["pairwise_transforms.csv", "${it[0]},${it[1]}"]}
+    apply_transforms_to_stack_channel = estimate_pairwise_transform.out
+        .map{_meta, slice_3d, _screenshot -> slice_3d}
+        .collect().map{it -> [it]}
+        .combine(stack_mosaics_into_3d_volume.out)
+        .combine(min_indice)
+
+    apply_transforms_to_stack(apply_transforms_to_stack_channel)
 }

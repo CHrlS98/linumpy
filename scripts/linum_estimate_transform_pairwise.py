@@ -65,7 +65,7 @@ def main():
 
     fixed_vol = vol[z_offsets_source[fixed_slice_idx]:z_offsets_source[moving_slice_idx]]
 
-    out_depth = len(fixed_vol)  - n_overlap_vox
+    out_depth = len(fixed_vol) - n_overlap_vox
     moving_vol = vol[z_offsets_source[moving_slice_idx]:z_offsets_source[moving_slice_idx] + out_depth]
 
     fixed_image = fixed_vol[-n_overlap_vox:].mean(axis=0)
