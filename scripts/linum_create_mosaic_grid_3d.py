@@ -112,6 +112,7 @@ def process_tile(params: dict):
     cmax = cmin + vol.shape[2]
     mosaic[0:tile_size[0], rmin:rmax, cmin:cmax] = vol
 
+
 def main():
     # Parse arguments
     parser = _build_arg_parser()
