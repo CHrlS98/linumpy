@@ -13,11 +13,11 @@ environ["OMP_NUM_THREADS"] = "1"
 import argparse
 import tempfile
 from pathlib import Path
+from basicpy import BaSiC
 
 import dask.array as da
 
 import zarr
-from pybasic.shading_correction import BaSiC
 from tqdm.auto import tqdm
 import imageio as io
 import numpy as np
@@ -74,31 +74,28 @@ def process_tile(params: dict):
             sign_imag = [np.sign(t) for t in tiles_imag]
 
             # Run BaSiC
-            optimizer = BaSiC(np.abs(tiles).astype(np.float64), estimate_darkfield=True)
-            optimizer.working_size = 64
-            optimizer.prepare()
-            optimizer.run()
-            
+            # TODO: Validate with data
+            optimizer = BaSiC(get_darkfield=True, smoothness_flatfield=1)
+            optimizer.fit(np.abs(np.asarray(tiles)).astype(np.float64))
+            tiles_real_corr = optimizer.transform(np.asarray(tiles_real))
+            tiles_imag_corr = optimizer.transform(np.asarray(tiles_imag))
+
             # Apply correction and reconstruct complex result with original signs
             tiles_corrected = [
-                (optimizer.normalize(t_real) * s_real)
-                + 1j * (optimizer.normalize(t_imag) * s_imag)
+                (t_real * s_real) + 1j * (t_imag * s_imag)
                 for t_real, t_imag, s_real, s_imag in zip(
-                    tiles_real, tiles_imag, sign_real, sign_imag
-                )
+                    tiles_real_corr, tiles_imag_corr, sign_real, sign_imag)
             ]
         except TypeError as e:
             print(f"Error processing complex tiles: {e}")
             
     else:
         # Process normally if tiles are real
-        optimizer = BaSiC(tiles, estimate_darkfield=True)
-        optimizer.working_size = 64
-        optimizer.prepare()
-        optimizer.run()
+        optimizer = BaSiC(get_darkfield=True, smoothness_flatfield=1)
+        optimizer.fit(np.asarray(tiles))
 
         # Apply correction
-        tiles_corrected = [optimizer.normalize(t) for t in tiles]
+        tiles_corrected = optimizer.transform(np.asarray(tiles))
 
     # Fill the output mosaic
     vol_output = np.zeros_like(vol)
