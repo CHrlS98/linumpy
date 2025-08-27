@@ -12,6 +12,7 @@ params.output = "output"
 params.use_old_folder_structure = false // Use the old folder structure where tiles are not stored in subfolders based on their Z
 params.processes = 1 // Maximum number of python processes per nextflow process
 params.axial_resolution = 1.5 // Axial resolution of imaging system in microns
+params.resampled_resolution = 20 // Resampled resolution in microns
 
 process create_mosaic_grid {
     input:
@@ -21,6 +22,17 @@ process create_mosaic_grid {
     script:
     """
     linum_create_mosaic_grid_3d.py mosaic_grid_3d_z${slice_id}.ome.zarr --from_tiles_list $tiles --resolution -1 --n_processes ${params.processes} --axial_resolution ${params.axial_resolution} --n_levels 0
+    """
+}
+
+process resample_mosaic_grid {
+    input:
+        tuple val(slice_id), path(mosaic_grid)
+    output:
+        tuple val(slice_id), path("mosaic_grid_3d_z${slice_id}_${params.resampled_resolution}um.ome.zarr")
+    script:
+    """
+    linum_resample_mosaic_grid.py ${mosaic_grid} "mosaic_grid_3d_z${slice_id}_${params.resampled_resolution}um.ome.zarr" -r ${params.resampled_resolution}
     """
 }
 
@@ -36,26 +48,15 @@ process compress_mosaic_grid {
     """
 }
 
-process aip {
+process compress_resampled {
+    publishDir "$params.output", mode: 'copy'
     input:
         tuple val(slice_id), path(mosaic_grid)
     output:
-        tuple val(slice_id), path("aip_z${slice_id}.ome.zarr")
+        tuple val(slice_id), path("mosaic_grid_3d_z${slice_id}_${params.resampled_resolution}um.ome.zarr.zip")
     script:
     """
-    linum_aip.py ${mosaic_grid} aip_z${slice_id}.ome.zarr --n_levels 0
-    """
-}
-
-process compress_aip {
-    publishDir "$params.output", mode: 'copy'
-    input:
-        tuple val(slice_id), path(aip)
-    output:
-        tuple val(slice_id), path("mosaic_grid_3d_z${slice_id}.ome.zarr.zip")
-    script:
-    """
-    zip -r aip_z${slice_id}.ome.zarr.zip ${aip}
+    zip -r mosaic_grid_3d_z${slice_id}_${params.resampled_resolution}um.ome.zarr.zip ${mosaic_grid}
     """
 }
 
@@ -92,11 +93,11 @@ workflow {
     // Compress to zip to reduce the number of files
     compress_mosaic_grid(create_mosaic_grid.out)
 
-    // Generate AIP for faster QA
-    aip(create_mosaic_grid.out)
+    // Create a resampled mosaic_grid for lighter data
+    resample_mosaic_grid(create_mosaic_grid.out)
 
-    // Compress AIP for storage
-    compress_aip(aip.out)
+    // Compress resampled
+    compress_resampled(resample_mosaic_grid.out)
 
     // Estimate XY shifts from metadata
     estimate_xy_shifts_from_metadata(input_dir_channel)
