@@ -30,6 +30,17 @@ process create_mosaic_grid {
     """
 }
 
+process clip_outliers {
+    input:
+        tuple val(slice_id), path(mosaic_grid)
+    output:
+        tuple val(slice_id), path("mosaic_grid_3d_${params.resolution}um_clipped.ome.zarr")
+    script:
+    """
+    linum_clip_percentile.py $mosaic_grid mosaic_grid_3d_${params.resolution}um_clipped.ome.zarr
+    """
+}
+
 process fix_focal_curvature {
     input:
         tuple val(slice_id), path(mosaic_grid)
@@ -183,14 +194,17 @@ workflow {
     }
     input_dir_channel = Channel.fromPath("$params.input", type: 'dir')
 
-    // Generate a 3D mosaic grid.
-    create_mosaic_grid(inputSlices)
-
     // Estimate XY shifts from metadata
     estimate_xy_shifts_from_metadata(input_dir_channel)
 
+    // Generate a 3D mosaic grid.
+    create_mosaic_grid(inputSlices)
+
+    // Clip values to remove hyperintensities
+    clip_outliers(create_mosaic_grid.out)
+
     // Focal plane curvature compensation
-    fix_focal_curvature(create_mosaic_grid.out)
+    fix_focal_curvature(clip_outliers.out)
 
     // Compensate for XY illumination inhomogeneity
     fix_illumination(fix_focal_curvature.out)
