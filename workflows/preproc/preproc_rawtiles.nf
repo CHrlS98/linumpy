@@ -20,12 +20,24 @@ process create_mosaic_grid {
         tuple val(slice_id), path("*.ome.zarr")
     script:
     """
-    linum_create_mosaic_grid_3d.py mosaic_grid_3d.ome.zarr --from_tiles_list $tiles --resolution -1 --n_processes ${params.processes} --axial_resolution ${params.axial_resolution} --n_levels 0
+    linum_create_mosaic_grid_3d.py mosaic_grid_3d_z${slice_id}.ome.zarr --from_tiles_list $tiles --resolution -1 --n_processes ${params.processes} --axial_resolution ${params.axial_resolution} --n_levels 0
+    """
+}
+
+process compress {
+    publishDir "$params.output", mode: 'copy'
+    input:
+        tuple val(slice_id), path(mosaic_grid)
+    output:
+        tuple val(slice_id), path("mosaic_grid_3d_z${slice_id}.ome.zarr.zip")
+    script:
+    """
+    zip -r ${mosaic_grid} mosaic_grid_3d_z${slice_id}.ome.zarr.zip
     """
 }
 
 process estimate_xy_shifts_from_metadata {
-    publishDir "$params.output/$task.process"
+    publishDir "$params.output", mode: 'copy'
     input:
         path(input_dir)
     output:
@@ -51,8 +63,11 @@ workflow {
     }
     input_dir_channel = Channel.fromPath("$params.input", type: 'dir')
 
-    // Generate a 3D mosaic grid.
+    // Generate a 3D mosaic grid at full resolution
     create_mosaic_grid(inputSlices)
+
+    // Compress to zip to reduce the number of files
+    compress(create_mosaic_grid.out)
 
     // Estimate XY shifts from metadata
     estimate_xy_shifts_from_metadata(input_dir_channel)
