@@ -180,6 +180,13 @@ def save_omezarr(data, store_path, voxel_size=(1e-3, 1e-3, 1e-3),
     :return zarr_group: Resulting zarr group saved to disk.
     """
     # pyramidal decomposition (ome_zarr.scale.Scaler) keywords
+
+    adjusted_n_levels = min(*np.log2(data.shape).astype(int) - 1, n_levels)
+    if n_levels > adjusted_n_levels:
+        print(f'WARNING: Requested n_levels {n_levels} too high for image dimensions.\n'
+              f'Setting to {adjusted_n_levels}.')
+    n_levels = adjusted_n_levels
+
     pyramid_kw = {"max_layer": n_levels,
                   "method": "linear",
                   "downscale": 2}
