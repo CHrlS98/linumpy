@@ -24,7 +24,7 @@ process create_mosaic_grid {
     """
 }
 
-process compress {
+process compress_mosaic_grid {
     publishDir "$params.output", mode: 'copy'
     input:
         tuple val(slice_id), path(mosaic_grid)
@@ -32,7 +32,30 @@ process compress {
         tuple val(slice_id), path("mosaic_grid_3d_z${slice_id}.ome.zarr.zip")
     script:
     """
-    zip -r ${mosaic_grid} mosaic_grid_3d_z${slice_id}.ome.zarr.zip
+    zip -r mosaic_grid_3d_z${slice_id}.ome.zarr.zip ${mosaic_grid}
+    """
+}
+
+process aip {
+    input:
+        tuple val(slice_id), path(mosaic_grid)
+    output:
+        tuple val(slice_id), path("aip_z${slice_id}.ome.zarr")
+    script:
+    """
+    linum_aip.py ${mosaic_grid} aip_z${slice_id}.ome.zarr --n_levels 0
+    """
+}
+
+process compress_aip {
+    publishDir "$params.output", mode: 'copy'
+    input:
+        tuple val(slice_id), path(aip)
+    output:
+        tuple val(slice_id), path("mosaic_grid_3d_z${slice_id}.ome.zarr.zip")
+    script:
+    """
+    zip -r aip_z${slice_id}.ome.zarr.zip ${aip}
     """
 }
 
@@ -67,7 +90,13 @@ workflow {
     create_mosaic_grid(inputSlices)
 
     // Compress to zip to reduce the number of files
-    compress(create_mosaic_grid.out)
+    compress_mosaic_grid(create_mosaic_grid.out)
+
+    // Generate AIP for faster QA
+    aip(create_mosaic_grid.out)
+
+    // Compress AIP for storage
+    compress_aip(aip.out)
 
     // Estimate XY shifts from metadata
     estimate_xy_shifts_from_metadata(input_dir_channel)

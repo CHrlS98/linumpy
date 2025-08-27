@@ -18,6 +18,8 @@ def _build_arg_parser():
                    help="Full path to the zarr volume.")
     p.add_argument("output_image", default=None,
                    help="Full path to the output zarr image")
+    p.add_argument('--n_levels', default=5, type=int,
+                   help='Number of levels for .ome.zarr decomposition. [%(default)s]')
 
     return p
 
@@ -55,7 +57,8 @@ def main():
             aip[rmin:rmax, cmin:cmax] = tile
 
     out_dask = da.from_zarr(aip)
-    save_omezarr(out_dask, output_file, resolution[1:], tile_shape[1:])
+    save_omezarr(out_dask, output_file, resolution[1:], tile_shape[1:],
+                 n_levels=args.n_levels)
 
 
 if __name__ == "__main__":
