@@ -5,7 +5,6 @@ import numpy as np
 import zarr
 import dask.array as da
 import itertools
-from tqdm import tqdm
 
 from skimage.transform import rescale
 from linumpy.io import read_omezarr, save_omezarr
@@ -20,6 +19,8 @@ def _build_arg_parser():
                    help='Output resampled mosaic .ome.zarr.')
     p.add_argument('--resolution', '-r', type=float, default=10.0,
                    help='Isotropic resolution for resampling in microns.')
+    p.add_argument('--n_levels', type=int, default=5,
+                   help='Number of levels in pyramid decomposition [%(default)s].')
     return p
 
 
@@ -52,7 +53,8 @@ def main():
                     scaling_factor, order=1, preserve_range=True, anti_aliasing=True)
 
     darr = da.from_zarr(out_zarr)
-    save_omezarr(darr, args.out_mosaic, [target_res]*3, chunks=out_tile_shape)
+    save_omezarr(darr, args.out_mosaic, [target_res]*3,
+                 chunks=out_tile_shape, n_levels=args.n_levels)
 
 
 if __name__ == '__main__':
