@@ -35,6 +35,8 @@ def _build_arg_parser():
                    help="Slice indices to ignore in the transformation application.")
     p.add_argument('--first_slice_index', type=int, default=0,
                    help='Index of the first slice in the stack. [%(default)s]')
+    p.add_argument('--keep_extra', action='store_true',
+                   help='Keep extra slices (useful for performing additional registration).')
     return p
 
 
@@ -55,18 +57,24 @@ def main():
 
     vol, res = read_omezarr(args.in_stack)
     interval_vox = int(np.ceil(args.slicing_interval / res[0]))  # in voxels
-    n_overlap_vox = int(interval_vox * (args.factor_extra - 1.0))  # in voxels
 
     z_offsets_source = np.load(args.in_offsets)
-    overlap_to_remove = np.arange(len(z_offsets_source)) * n_overlap_vox
-    z_offsets_dest = z_offsets_source - overlap_to_remove
-    z_offsets_dest = np.append(z_offsets_dest, z_offsets_dest[-1] + interval_vox)
     n_slices = len(z_offsets_source)
+    # for the final slice of the volume
+    z_offsets_source = np.append(z_offsets_source, vol.shape[0])
+    if args.keep_extra:
+        z_offsets_dest = z_offsets_source
+        n_overlap_vox = 0
+    else:
+        n_overlap_vox = int(interval_vox * (args.factor_extra - 1.0))  # in voxels
+        overlap_to_remove = np.arange(len(z_offsets_source)) * n_overlap_vox
+        z_offsets_dest = z_offsets_source - overlap_to_remove
+        z_offsets_dest = np.append(z_offsets_dest, z_offsets_dest[-1] + interval_vox)
     print(n_slices, "slices in the source stack.")
     
     transforms = [sitk.Transform()] * (n_slices)
     transforms_files = Path(args.in_transforms_dir).glob("*.mat")
-    pattern = r".*z(\d+)_.*"  # the parentheses create a group containing the slice id
+    pattern = r".*z(\d+).*"  # the parentheses create a group containing the slice id
     for f in transforms_files:
         match = re.match(pattern, f.name)
         # the only group found is the slice id
@@ -90,14 +98,17 @@ def main():
     output_shape = (z_offsets_dest[-1], nr, nc)
     output_vol = zarr.open(zarr.TempStore(), mode='w', shape=output_shape,
                            chunks=vol.chunks, dtype=vol.dtype)
-    num_voxels_dest = z_offsets_dest[1] - z_offsets_dest[0]
-    output_vol[z_offsets_dest[0]:z_offsets_dest[1]] =\
-        vol[z_offsets_source[0]:z_offsets_source[0] + num_voxels_dest]
+    output_vol[z_offsets_dest[0]:z_offsets_dest[1] + n_overlap_vox] =\
+        vol[z_offsets_source[0]:z_offsets_source[1]]  # we keep the overlap region in case keep_extra is True
+
+    # assemble volume
     for i in tqdm(range(1, n_slices), desc='Apply transforms to volume'):
-        num_voxels_dest = z_offsets_dest[i+1] - z_offsets_dest[i]
-        curr_vol = vol[z_offsets_source[i]:z_offsets_source[i] + num_voxels_dest]
+        curr_vol = vol[z_offsets_source[i]:z_offsets_source[i + 1]]
         composite_transform = sitk.CompositeTransform(transforms[i::-1])
-        output_vol[z_offsets_dest[i]:z_offsets_dest[i+1]] = apply_transform(curr_vol, composite_transform)
+        reg_vol = apply_transform(curr_vol, composite_transform)
+
+        z_max = min(z_offsets_dest[i + 1] + n_overlap_vox, output_vol.shape[0])
+        output_vol[z_offsets_dest[i]:z_max] = reg_vol[:z_max-z_offsets_dest[i]]
 
     save_omezarr(da.from_zarr(output_vol), args.out_stack,
                  voxel_size=res, chunks=vol.chunks)
