@@ -12,7 +12,7 @@ import dask.array as da
 import zarr
 from skimage.transform import resize
 from tqdm.auto import tqdm
-from linumpy.io.zarr import save_omezarr
+from linumpy.io.zarr import save_omezarr, create_tempstore
 from linumpy import reconstruction
 from linumpy.microscope.oct import OCT
 from linumpy.io.thorlabs import ThorOCT, PreprocessingConfig
@@ -175,7 +175,7 @@ def main():
             vol = oct.second_polarization
         vol = ThorOCT.orient_volume_psoct(vol)
         resolution = [oct.resolution[2], oct.resolution[0], oct.resolution[1]]
-        print(f"Resolutoin: z = {resolution[0]} , x = {resolution[1]} , y = {resolution[2]} ")   
+        print(f"Resolution: z = {resolution[0]} , x = {resolution[1]} , y = {resolution[2]} ")   
 
     # Compute the rescaled tile size based on
     # the minimum target output resolution
@@ -186,9 +186,9 @@ def main():
         tile_size = [int(vol.shape[i] * resolution[i] * 1000 / output_resolution) for i in range(3)]
         output_resolution = [output_resolution / 1000.0] * 3
     mosaic_shape = [tile_size[0], n_mx * tile_size[1], n_my * tile_size[2]]
-    
+
     # Create the zarr persistent array
-    zarr_store = zarr.TempStore(dir=args.zarr_root, suffix=".zarr")
+    zarr_store = create_tempstore(args.zarr_root, ".zarr")
     mosaic = zarr.open(zarr_store, mode="w", shape=mosaic_shape,
                        dtype=np.complex64 if args.return_complex else np.float32,
                        chunks=tile_size)
@@ -215,6 +215,7 @@ def main():
         for p in tqdm(params):
             process_tile(p)
 
+    print(np.max(mosaic[:]))
     # Convert to ome-zarr
     mosaic_dask = da.from_zarr(mosaic)
     save_omezarr(mosaic_dask, args.output_zarr, voxel_size=output_resolution,

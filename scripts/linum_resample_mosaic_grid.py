@@ -7,7 +7,7 @@ import dask.array as da
 import itertools
 
 from skimage.transform import rescale
-from linumpy.io import read_omezarr, save_omezarr
+from linumpy.io import read_omezarr, save_omezarr, create_tempstore
 
 
 def _build_arg_parser():
@@ -44,7 +44,7 @@ def main():
     ny = vol.shape[2] // tile_shape[2]
 
     out_shape = (out_tile_shape[0], nx*out_tile_shape[1], ny*out_tile_shape[2])
-    out_zarr = zarr.open(zarr.TempStore(), mode='w', shape=out_shape,
+    out_zarr = zarr.open(create_tempstore(), mode='w', shape=out_shape,
                          chunks=out_tile_shape, dtype=vol.dtype)
     for i, j in itertools.product(range(nx), range(ny)):
         out_zarr[:, i*out_tile_shape[1]:(i + 1)*out_tile_shape[1],

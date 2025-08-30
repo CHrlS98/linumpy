@@ -12,7 +12,7 @@ import pandas as pd
 from scipy.ndimage import gaussian_filter
 from skimage.filters import threshold_otsu
 
-from linumpy.io.zarr import read_omezarr, save_omezarr
+from linumpy.io.zarr import read_omezarr, save_omezarr, create_tempstore
 from linumpy.utils_images import apply_xy_shift
 
 
@@ -127,7 +127,7 @@ def main():
     sigma_vox = args.sigma / res[0]
     xmin, xmax = None, None
     ymin, ymax = None, None
-    output_store = zarr.TempStore()
+    output_store = create_tempstore()
     output_stack = zarr.open(output_store, mode="w", shape=volume_shape,
                              dtype=img.dtype, chunks=(256, 256, 256))
     z_offsets = [0]

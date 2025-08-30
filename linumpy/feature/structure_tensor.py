@@ -1,6 +1,6 @@
 # -*- coding:utf-8 -*-
 from linumpy.feature.kernel import make_xfilter, make_yfilter, make_zfilter, gaussian, gaussian_derivative
-
+from linumpy.io.zarr import create_tempstore
 import numpy as np
 import zarr
 import dask.array as da
@@ -47,7 +47,7 @@ def dask_to_zarr(array, shape, chunks, zarr_store=None, dtype='float32'):
         Zarr array.
     """
     if zarr_store is None:
-        zarr_store = zarr.TempStore()
+        zarr_store = create_tempstore()
     zarr_array = zarr.open(zarr_store, mode='w', shape=shape, chunks=chunks, dtype=dtype)
     da.to_zarr(array, zarr_array, shape=shape, chunks=chunks, dtype=dtype)
     return zarr_array
@@ -201,7 +201,7 @@ def compute_principal_direction(st_xx, st_xy, st_xz, st_yy, st_yz, st_zz,
         Coherence array (3D).
     """
     if store_mode == StoreMode.TEMPSTORE:
-        store_class = zarr.TempStore
+        store_class = create_tempstore
     elif store_mode == StoreMode.MEMORY:
         store_class = zarr.MemoryStore
     else:
@@ -325,7 +325,7 @@ def compute_structure_tensor(data, sigma_to_vox, rho_to_vox, n_jobs=12,
         Structure tensor components (3D zarr arrays).
     """
     if store_mode == StoreMode.TEMPSTORE:
-        store_class = zarr.TempStore
+        store_class = create_tempstore
     elif store_mode == StoreMode.MEMORY:
         store_class = zarr.MemoryStore
     else:

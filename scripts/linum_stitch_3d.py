@@ -11,7 +11,7 @@ import numpy as np
 import zarr
 import dask.array as da
 
-from linumpy.io.zarr import read_omezarr, save_omezarr
+from linumpy.io.zarr import read_omezarr, save_omezarr, create_tempstore
 from linumpy.utils.mosaic_grid import addVolumeToMosaic
 
 
@@ -72,7 +72,7 @@ def main():
     mosaic_shape = [volume.shape[0], posx_max - posx_min, posy_max - posy_min]
 
     # Stitch the mosaic
-    temp_store = zarr.TempStore(suffix='.zarr')
+    temp_store = create_tempstore(suffix='.zarr')
     mosaic = zarr.open(
         temp_store,
         mode="w",
