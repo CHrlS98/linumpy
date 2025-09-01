@@ -8,15 +8,12 @@ import multiprocessing
 from pathlib import Path
 
 import numpy as np
-import dask.array as da
-import zarr
 from skimage.transform import resize
 from tqdm.auto import tqdm
-from linumpy.io.zarr import save_omezarr, create_tempstore
+from linumpy.io.zarr import OmeZarrWriter
 from linumpy import reconstruction
 from linumpy.microscope.oct import OCT
 from linumpy.io.thorlabs import ThorOCT, PreprocessingConfig
-
 
 from linumpy.utils.io import parse_processes_arg, add_processes_arg
 
@@ -175,7 +172,7 @@ def main():
             vol = oct.second_polarization
         vol = ThorOCT.orient_volume_psoct(vol)
         resolution = [oct.resolution[2], oct.resolution[0], oct.resolution[1]]
-        print(f"Resolution: z = {resolution[0]} , x = {resolution[1]} , y = {resolution[2]} ")   
+        print(f"Resolution: z = {resolution[0]} , x = {resolution[1]} , y = {resolution[2]} ")
 
     # Compute the rescaled tile size based on
     # the minimum target output resolution
@@ -187,11 +184,10 @@ def main():
         output_resolution = [output_resolution / 1000.0] * 3
     mosaic_shape = [tile_size[0], n_mx * tile_size[1], n_my * tile_size[2]]
 
-    # Create the zarr persistent array
-    zarr_store = create_tempstore(args.zarr_root, ".zarr")
-    mosaic = zarr.open(zarr_store, mode="w", shape=mosaic_shape,
-                       dtype=np.complex64 if args.return_complex else np.float32,
-                       chunks=tile_size)
+    # Create output mosaic with requested shape
+    mosaic = OmeZarrWriter(args.output_zarr, mosaic_shape, tile_size,
+                           dtype=np.complex64 if args.return_complex else np.float32,
+                           overwrite=True)
 
     # Create a params dictionary for every tile
     params = []
@@ -215,11 +211,8 @@ def main():
         for p in tqdm(params):
             process_tile(p)
 
-    print(np.max(mosaic[:]))
-    # Convert to ome-zarr
-    mosaic_dask = da.from_zarr(mosaic)
-    save_omezarr(mosaic_dask, args.output_zarr, voxel_size=output_resolution,
-                 chunks=tile_size, n_levels=args.n_levels)
+    # Finalize mosaic will create pyramidal decomposition
+    mosaic.finalize(output_resolution, args.n_levels)
 
 
 if __name__ == "__main__":

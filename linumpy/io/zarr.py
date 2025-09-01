@@ -2,13 +2,16 @@ import shutil
 from pathlib import Path
 import tempfile
 import numpy as np
+import os
 
 import dask.array as da
 import zarr
 from ome_zarr.dask_utils import resize as dask_resize
 from ome_zarr.io import parse_url
 from ome_zarr.scale import Scaler
+from ome_zarr.dask_utils import resize as da_resize
 from ome_zarr.writer import write_image, write_multiscales_metadata
+from ome_zarr.format import CurrentFormat
 from ome_zarr.reader import Reader, Multiscales
 from skimage.transform import resize
 
@@ -197,14 +200,13 @@ def save_omezarr(data, store_path, voxel_size=(1e-3, 1e-3, 1e-3),
     :type zarr_group: zarr.hierarchy.group
     :return zarr_group: Resulting zarr group saved to disk.
     """
-    # pyramidal decomposition (ome_zarr.scale.Scaler) keywords
-
     adjusted_n_levels = min(*np.log2(data.shape).astype(int) - 1, n_levels)
     if n_levels > adjusted_n_levels:
         print(f'WARNING: Requested n_levels {n_levels} too high for image dimensions.\n'
               f'Setting to {adjusted_n_levels}.')
     n_levels = adjusted_n_levels
 
+    # pyramidal decomposition (ome_zarr.scale.Scaler) keywords
     pyramid_kw = {"max_layer": n_levels,
                   "method": "linear",
                   "downscale": 2}
@@ -278,113 +280,83 @@ def read_omezarr(zarr_path, level=0):
     return vol, scale
 
 
-# def downsample_pyramid_on_disk(parent, paths):
-#     """
-#     Takes a high-resolution Zarr array at paths[0] in the zarr group
-#     and down-samples it by a factor of 2 for each of the other paths
-#     """
-#     group_path = str(parent.store_path)
-#     img_path = parent.store_path / parent.path
-#     image_path = os.path.join(group_path, parent.path)
-#     print("downsample_pyramid_on_disk", image_path)
-#     for count, path in enumerate(paths[1:]):
-#         target_path = os.path.join(image_path, path)
-#         if os.path.exists(target_path):
-#             print("path exists: %s" % target_path)
-#             continue
-#         # open previous resolution from disk via dask...
-#         path_to_array = os.path.join(image_path, paths[count])
-#         dask_image = da.from_zarr(path_to_array)
+class OmeZarrWriter:
+    def __init__(self, store_path, shape, chunk_shape, dtype, overwrite):
+        self.fmt = CurrentFormat()
+        self.shape = shape
 
-#         # resize in X and Y
-#         dims = list(dask_image.shape)
-#         dims[-1] = dims[-1] // 2
-#         dims[-2] = dims[-2] // 2
-#         output = da_resize(
-#             dask_image, tuple(dims), preserve_range=True, anti_aliasing=False
-#         )
+        if os.path.exists(store_path):
+            if overwrite:
+                shutil.rmtree(store_path)
+            else:
+                raise ValueError(f"Overwrite set to False and {store_path} non-empty.")
 
-#         options = {}
-#         if fmt.zarr_format == 2:
-#             options["dimension_separator"] = "/"
-#         else:
-#             options["chunk_key_encoding"] = fmt.chunk_key_encoding
-#             options["dimension_names"] = [axis["name"] for axis in axes]
-#         # write to disk
-#         da.to_zarr(
-#             arr=output, url=img_path, component=path,
-#             zarr_format=fmt.zarr_format, **options
-#         )
-#     return paths
+        store = parse_url(store_path, mode="w", fmt=self.fmt).store
+        self.root = zarr.group(store=store)
 
+        # create empty array at root of pyramid
+        # This is the array we will fill on-the-fly
+        self.axes = generate_axes_dict(len(shape))
+        self.zarray = self.root.require_array(
+            "0",
+            shape=shape,
+            exact=True,
+            chunks=chunk_shape,
+            dtype=dtype,
+            chunk_key_encoding=self.fmt.chunk_key_encoding,
+            dimension_names=[axis["name"] for axis in self.axes], # omit for v0.4
+        )
 
-# class OmeZarrWriter:
-#     def __init__(self, store_path, shape, chunk_shape, dtype, n_levels):
-#         fmt = CurrentFormat()
+    def _downsample_pyramid_on_disk(self, parent, paths):
+        """
+        Takes a high-resolution Zarr array at paths[0] in the zarr group
+        and down-samples it by a factor of 2 for each of the other paths
+        """
+        group_path = str(parent.store_path)
+        img_path = parent.store_path / parent.path
+        image_path = os.path.join(group_path, parent.path)
+        print("downsample_pyramid_on_disk", image_path)
+        for count, path in enumerate(paths[1:]):
+            target_path = os.path.join(image_path, path)
+            if os.path.exists(target_path):
+                print("path exists: %s" % target_path)
+                continue
+            # open previous resolution from disk via dask...
+            path_to_array = os.path.join(image_path, paths[count])
+            dask_image = da.from_zarr(path_to_array)
 
-#         axes = generate_axes_dict(len(shape))
+            # resize in X and Y
+            dims = list(dask_image.shape)
+            dims[-1] = dims[-1] // 2
+            dims[-2] = dims[-2] // 2
+            output = da_resize(
+                dask_image, tuple(dims), preserve_range=True, anti_aliasing=False
+            )
 
-#         store = parse_url(store_path, mode="w", fmt=fmt).store
-#         root = zarr.group(store=store)
+            options = {}
+            if self.fmt.zarr_format == 2:
+                options["dimension_separator"] = "/"
+            else:
+                options["chunk_key_encoding"] = self.fmt.chunk_key_encoding
+                options["dimension_names"] = [axis["name"] for axis in self.axes]
+            # write to disk
+            da.to_zarr(
+                arr=output, url=img_path, component=path,
+                zarr_format=self.fmt.zarr_format, **options
+            )
 
-#         # create empty array at root of pyramid
-#         # This is the array we will fill on-the-fly
-#         zarray = root.require_array(
-#             "0",
-#             shape=shape,
-#             exact=True,
-#             chunks=chunk_shape,
-#             dtype=dtype,
-#             chunk_key_encoding=fmt.chunk_key_encoding,
-#             dimension_names=[axis["name"] for axis in axes], # omit for v0.4
-#         )
+    def __setitem__(self, index, data):
+        self.zarray[index] = data
 
+    def __getitem__(self, index):
+        return self.zarray[index]
 
-# def init_omezarr(store_path, shape, tile_shape, dtype, n_levels):
-#     fmt = CurrentFormat()
+    def finalize(self, res, n_levels):
+        paths = [f"{i}" for i in range(n_levels + 1)]
+        self._downsample_pyramid_on_disk(self.root, paths)
+        transformations = create_transformation_dict(n_levels + 1, res, len(self.shape))
+        datasets = []
+        for p, t in zip(paths, transformations):
+            datasets.append({"path": p, "coordinateTransformations": t})
 
-#     axes = generate_axes_dict(len(shape))
-
-#     store = parse_url(store_path, mode="w", fmt=fmt).store
-#     root = zarr.group(store=store)
-
-#     # create empty array at root of pyramid
-#     # This is the array we will fill on-the-fly
-#     zarray = root.require_array(
-#         "0",
-#         shape=shape,
-#         exact=True,
-#         chunks=tile_shape,
-#         dtype=dtype,
-#         chunk_key_encoding=fmt.chunk_key_encoding,
-#         dimension_names=[axis["name"] for axis in axes], # omit for v0.4
-#     )
-
-#     print("row_count", row_count, "col_count", col_count)
-#     # Go through all tiles and write data to "0" array
-#     for ch_index in range(channel_count):
-#         for row in range(row_count):
-#             for col in range(col_count):
-#                 tile = get_tile(ch_index, row, col).compute()
-#                 y1 = row * tile_size
-#                 y2 = y1 + tile_size
-#                 x1 = col * tile_size
-#                 x2 = x1 + tile_size
-#                 print("ch_index", ch_index, "row", row, "col", col)
-#                 zarray[ch_index, y1:y2, x1:x2] = tile
-
-#     paths = ["0", "1", "2"]
-
-#     # We have "0" array. This downsamples (in X and Y dims only) to create "1" and "2"
-#     downsample_pyramid_on_disk(root, paths)
-
-#     transformations = [
-#         [{"type": "scale", "scale": [1.0, 1.0, 1.0]}],
-#         [{"type": "scale", "scale": [1.0, 2.0, 2.0]}],
-#         [{"type": "scale", "scale": [1.0, 4.0, 4.0]}]
-#     ]
-#     datasets = []
-#     for p, t in zip(paths, transformations):
-#         datasets.append({"path": p, "coordinateTransformations": t})
-
-#     write_multiscales_metadata(root, datasets, axes=axes)
+        write_multiscales_metadata(self.root, datasets, axes=self.axes)
