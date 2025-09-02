@@ -5,7 +5,6 @@
 
 import argparse
 import re
-import shutil
 from pathlib import Path
 
 import nibabel as nib
@@ -99,10 +98,7 @@ def main():
     volume_shape = (n_slices, ny, nx)
 
     # Create the zarr persistent array
-    process_sync_file = str(zarr_file).replace(".zarr", ".sync")
-    synchronizer = zarr.ProcessSynchronizer(process_sync_file)
-    mosaic = zarr.open(zarr_file, mode="w", shape=volume_shape, dtype=np.float32, chunks=(1, 256, 256),
-                       synchronizer=synchronizer)
+    mosaic = zarr.open(zarr_file, mode="w", shape=volume_shape, dtype=np.float32, chunks=(1, 256, 256))
 
     # Loop over the slices
     for i in tqdm(range(len(files)), unit="slice", desc="Stacking slices"):
@@ -127,8 +123,6 @@ def main():
 
         del img
 
-    # Removing the synchronizer file
-    shutil.rmtree(process_sync_file)
 
 if __name__ == "__main__":
     main()

@@ -15,6 +15,8 @@ params.axial_resolution = 1.5 // Axial resolution of imaging system in microns
 params.resampled_resolution = 20 // Resampled resolution in microns
 
 process create_mosaic_grid {
+    cpus ${params.processes}
+
     input:
         tuple val(slice_id), path(tiles)
     output:

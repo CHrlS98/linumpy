@@ -6,7 +6,7 @@ import argparse
 import re
 from pathlib import Path
 import numpy as np
-from linumpy.io.zarr import read_omezarr, save_omezarr
+from linumpy.io.zarr import read_omezarr, save_omezarr, create_tempstore
 from linumpy.stitching.registration import apply_transform
 from tqdm import tqdm
 
@@ -96,7 +96,7 @@ def main():
     _, nr, nc = vol.shape
 
     output_shape = (z_offsets_dest[-1], nr, nc)
-    output_vol = zarr.open(zarr.TempStore(), mode='w', shape=output_shape,
+    output_vol = zarr.open(create_tempstore(), mode='w', shape=output_shape,
                            chunks=vol.chunks, dtype=vol.dtype)
     output_vol[z_offsets_dest[0]:z_offsets_dest[1] + n_overlap_vox] =\
         vol[z_offsets_source[0]:z_offsets_source[1]]  # we keep the overlap region in case keep_extra is True

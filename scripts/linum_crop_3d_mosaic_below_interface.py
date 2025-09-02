@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import dask.array as da
 import zarr
-from linumpy.io.zarr import read_omezarr, save_omezarr
+from linumpy.io.zarr import read_omezarr, save_omezarr, create_tempstore
 from linumpy.preproc.xyzcorr import findTissueInterface, maskUnderInterface
 
 def _build_arg_parser():
@@ -91,7 +91,7 @@ def main():
             out_shape = (end_idx, vol.shape[1], vol.shape[2])
         else:
             out_shape = vol.shape
-        store = zarr.TempStore()
+        store = create_tempstore()
         out_vol = zarr.open(store, mode="w", shape=out_shape,
                             dtype=np.float32, chunks=vol.chunks)
         out_vol[:vol.shape[0]] = vol[:]
