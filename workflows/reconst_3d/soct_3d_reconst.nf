@@ -20,7 +20,7 @@ params.metric = "MI" // Metric for the 3D stacking algorithm
 
 // Processes
 process create_mosaic_grid {
-    cpus ${params.processes}
+    cpus params.processes
 
     input:
         tuple val(slice_id), path(tiles)
@@ -55,7 +55,7 @@ process fix_focal_curvature {
 }
 
 process fix_illumination {
-    cpus ${params.processes}
+    cpus params.processes
 
     input:
         tuple val(slice_id), path(mosaic_grid)

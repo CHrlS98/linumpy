@@ -15,8 +15,7 @@ params.axial_resolution = 1.5 // Axial resolution of imaging system in microns
 params.resampled_resolution = 20 // Resampled resolution in microns
 
 process create_mosaic_grid {
-    cpus ${params.processes}
-
+    cpus params.processes
     input:
         tuple val(slice_id), path(tiles)
     output:
@@ -39,19 +38,19 @@ process resample_mosaic_grid {
 }
 
 process compress_mosaic_grid {
-    publishDir "$params.output", mode: 'copy'
+    publishDir "$params.output"
     input:
         tuple val(slice_id), path(mosaic_grid)
     output:
         tuple val(slice_id), path("mosaic_grid_3d_z${slice_id}.ome.zarr.zip")
     script:
     """
-    zip -r mosaic_grid_3d_z${slice_id}.ome.zarr.zip ${mosaic_grid}
+    zip -r0 mosaic_grid_3d_z${slice_id}.ome.zarr.zip ${mosaic_grid}
     """
 }
 
 process compress_resampled {
-    publishDir "$params.output", mode: 'copy'
+    publishDir "$params.output"
     input:
         tuple val(slice_id), path(mosaic_grid)
     output:
@@ -63,7 +62,7 @@ process compress_resampled {
 }
 
 process estimate_xy_shifts_from_metadata {
-    publishDir "$params.output", mode: 'copy'
+    publishDir "$params.output"
     input:
         path(input_dir)
     output:
@@ -96,10 +95,10 @@ workflow {
     compress_mosaic_grid(create_mosaic_grid.out)
 
     // Create a resampled mosaic_grid for lighter data
-    resample_mosaic_grid(create_mosaic_grid.out)
+    // resample_mosaic_grid(create_mosaic_grid.out)
 
     // Compress resampled
-    compress_resampled(resample_mosaic_grid.out)
+    // compress_resampled(resample_mosaic_grid.out)
 
     // Estimate XY shifts from metadata
     estimate_xy_shifts_from_metadata(input_dir_channel)

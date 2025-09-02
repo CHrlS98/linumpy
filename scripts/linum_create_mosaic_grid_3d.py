@@ -42,9 +42,7 @@ def _build_arg_parser():
                            help="Keep the galvo return signal [%(default)s]")
     options_g.add_argument('--n_levels', type=int, default=5,
                            help='Number of levels in pyramid representation.')
-    options_g.add_argument('--zarr_root',
-                           help='Path to parent directory under which the zarr'
-                                ' temporary directory will be created [/tmp/].')
+
     add_processes_arg(options_g)
     psoct_options_g = p.add_argument_group("PS-OCT options")  
     psoct_options_g.add_argument('--polarization', type = int, default = 1, choices = [0,1],
