@@ -12,6 +12,7 @@ params.output = "output"
 params.use_old_folder_structure = false // Use the old folder structure where tiles are not stored in subfolders based on their Z
 params.processes = 1 // Maximum number of python processes per nextflow process
 params.axial_resolution = 1.5 // Axial resolution of imaging system in microns
+params.resolution = -1 // resolution of mosaic grid. Defaults to full resolution.
 params.resampled_resolution = 20 // Resampled resolution in microns
 
 process create_mosaic_grid {
@@ -22,7 +23,7 @@ process create_mosaic_grid {
         tuple val(slice_id), path("*.ome.zarr")
     script:
     """
-    linum_create_mosaic_grid_3d.py mosaic_grid_3d_z${slice_id}.ome.zarr --from_tiles_list $tiles --resolution -1 --n_processes ${params.processes} --axial_resolution ${params.axial_resolution} --n_levels 0
+    linum_create_mosaic_grid_3d.py mosaic_grid_3d_z${slice_id}.ome.zarr --from_tiles_list $tiles --resolution ${params.resolution} --n_processes ${params.processes} --axial_resolution ${params.axial_resolution} --n_levels 0
     """
 }
 
@@ -92,7 +93,7 @@ workflow {
     create_mosaic_grid(inputSlices)
 
     // Compress to zip to reduce the number of files
-    compress_mosaic_grid(create_mosaic_grid.out)
+    // compress_mosaic_grid(create_mosaic_grid.out)
 
     // Create a resampled mosaic_grid for lighter data
     // resample_mosaic_grid(create_mosaic_grid.out)
