@@ -3,17 +3,11 @@
 """
 """
 import argparse
-import os
-import itertools
 import numpy as np
-from linumpy.io.zarr import read_omezarr, save_omezarr
+from linumpy.io.zarr import read_omezarr
 from linumpy.stitching.registration import register_2d_images_sitk, apply_transform
-from pqdm.processes import pqdm
-from tqdm import tqdm
 
 import matplotlib.pyplot as plt
-import zarr
-import dask.array as da
 
 
 def _build_arg_parser():
@@ -37,6 +31,8 @@ def _build_arg_parser():
                    help='Registration method to use. [%(default)s]')
     p.add_argument('--metric', choices=['MSE', 'CC', 'AntsCC', 'MI'], default='MSE',
                    help='Registration metric to use. [%(default)s]')
+    p.add_argument('--max_iterations', type=int, default=10000,
+                   help='Maximum number of iterations. [%(default)s]')
     p.add_argument('--grad_mag_tol', type=float, default=1e-12,
                    help='Gradient magnitude tolerance for registration. [%(default)s]')
     p.add_argument('--screenshot', default=None,
@@ -68,6 +64,8 @@ def main():
     out_depth = len(fixed_vol) - n_overlap_vox
     moving_vol = vol[z_offsets_source[moving_slice_idx]:z_offsets_source[moving_slice_idx] + out_depth]
 
+    # modify these lines to use top and bottom slices
+    # allow for keeping overlap
     fixed_image = fixed_vol[-n_overlap_vox:].mean(axis=0)
     moving_image = moving_vol[:n_overlap_vox].mean(axis=0)
 
@@ -75,7 +73,8 @@ def main():
     fixed_image -= np.percentile(fixed_image[fixed_image > 0], 0.5)
     fixed_image /= np.percentile(fixed_image, 99.5)
     fixed_image = np.clip(fixed_image, 0, 1)
-    moving_image = moving_vol.mean(axis=0)
+
+    # moving_image = moving_vol.mean(axis=0)
     moving_image -= np.percentile(moving_image[moving_image > 0], 0.5)
     moving_image /= np.percentile(moving_image, 99.5)
     moving_image = np.clip(moving_image, 0, 1)
@@ -83,6 +82,7 @@ def main():
     transform, stop_condition = register_2d_images_sitk(fixed_image, moving_image,
                                                         metric=args.metric,
                                                         method=args.method,
+                                                        max_iterations=args.max_iterations,
                                                         grad_mag_tol=args.grad_mag_tol,
                                                         return_3d_transform=True)
     print(f"Stop condition: {stop_condition}")

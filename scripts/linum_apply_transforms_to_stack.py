@@ -6,12 +6,10 @@ import argparse
 import re
 from pathlib import Path
 import numpy as np
-from linumpy.io.zarr import read_omezarr, save_omezarr, create_tempstore
+from linumpy.io.zarr import read_omezarr, OmeZarrWriter
 from linumpy.stitching.registration import apply_transform
 from tqdm import tqdm
 
-import dask.array as da
-import zarr
 import SimpleITK as sitk
 
 
@@ -96,8 +94,7 @@ def main():
     _, nr, nc = vol.shape
 
     output_shape = (z_offsets_dest[-1], nr, nc)
-    output_vol = zarr.open(create_tempstore(), mode='w', shape=output_shape,
-                           chunks=vol.chunks, dtype=vol.dtype)
+    output_vol = OmeZarrWriter(args.out_stack, output_shape, vol.chunks, vol.dtype, True)
     output_vol[z_offsets_dest[0]:z_offsets_dest[1] + n_overlap_vox] =\
         vol[z_offsets_source[0]:z_offsets_source[1]]  # we keep the overlap region in case keep_extra is True
 
@@ -110,8 +107,7 @@ def main():
         z_max = min(z_offsets_dest[i + 1] + n_overlap_vox, output_vol.shape[0])
         output_vol[z_offsets_dest[i]:z_max] = reg_vol[:z_max-z_offsets_dest[i]]
 
-    save_omezarr(da.from_zarr(output_vol), args.out_stack,
-                 voxel_size=res, chunks=vol.chunks)
+    output_vol.finalize(res)
 
 
 if __name__ == "__main__":

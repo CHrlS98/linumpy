@@ -294,6 +294,9 @@ class OmeZarrWriter:
         store = parse_url(store_path, mode="w", fmt=self.fmt).store
         self.root = zarr.group(store=store)
 
+        shape = [int(v) for v in shape]
+        chunk_shape = [int(v) for v in chunk_shape]
+
         # create empty array at root of pyramid
         # This is the array we will fill on-the-fly
         self.axes = generate_axes_dict(len(shape))
@@ -351,7 +354,7 @@ class OmeZarrWriter:
     def __getitem__(self, index):
         return self.zarray[index]
 
-    def finalize(self, res, n_levels):
+    def finalize(self, res, n_levels=5):
         paths = [f"{i}" for i in range(n_levels + 1)]
         self._downsample_pyramid_on_disk(self.root, paths)
         transformations = create_transformation_dict(n_levels + 1, res, len(self.shape))

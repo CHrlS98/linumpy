@@ -481,7 +481,8 @@ def register_mosaic_3d_to_reference_2d(ref_image, current_mosaic, method='euler'
 
 
 def register_2d_images_sitk(ref_image, moving_image, method='euler',
-                            metric='MSE', min_step=1e-12, grad_mag_tol=1e-12,
+                            metric='MSE', max_iterations=10000, 
+                            min_step=1e-12, grad_mag_tol=1e-12,
                             return_3d_transform=False):
     # Type cast everything to float32
     ref_image = ref_image.astype(np.float32)
@@ -503,7 +504,7 @@ def register_2d_images_sitk(ref_image, moving_image, method='euler',
     else:
         raise ValueError("Unknown metric: {}".format(metric))
 
-    R.SetOptimizerAsRegularStepGradientDescent(4.0, min_step, 10000,
+    R.SetOptimizerAsRegularStepGradientDescent(4.0, min_step, max_iterations,
                                                0.5, grad_mag_tol)
     R.SetShrinkFactorsPerLevel([4, 2, 1])
     R.SetSmoothingSigmasPerLevel([3, 2, 1])
@@ -531,6 +532,8 @@ def register_2d_images_sitk(ref_image, moving_image, method='euler',
     R.SetInitialTransform(sitk_transform)
 
     R.SetInterpolator(sitk.sitkLinear)
+
+    R.AddCommand(sitk.sitkIterationEvent, lambda: command_iteration(R))
 
     out_transform = R.Execute(fixed_sitk_image, moving_sitk_image)
     stop_condition = R.GetOptimizerStopConditionDescription()
@@ -563,6 +566,17 @@ def register_2d_images_sitk(ref_image, moving_image, method='euler',
         return transform_3d, stop_condition
 
     return out_transform, stop_condition
+
+
+def command_iteration(method):
+    """ Callback invoked when the optimization has an iteration """
+    if method.GetOptimizerIteration() == 0:
+        print("Estimated Scales: ", method.GetOptimizerScales())
+    print(
+        f"{method.GetOptimizerIteration():3} "
+        + f"= {method.GetMetricValue():7.5f} "
+        + f": {method.GetOptimizerPosition()}"
+    )
 
 
 def apply_transform(moving_image, transform):
