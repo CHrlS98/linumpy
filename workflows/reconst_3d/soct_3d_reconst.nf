@@ -8,6 +8,7 @@ nextflow.enable.dsl = 2
 
 // Parameters
 params.input = ""
+params.shifts_xy = "${params.input}/shifts_xy.csv"
 params.output = "output"
 params.resolution = 10 // Resolution of the reconstruction in micron/pixel
 params.processes = 1 // Maximum number of python processes per nextflow process
@@ -18,17 +19,16 @@ params.method = "affine" // Method for stitching, can be 'euler' or 'affine'
 params.grad_mag_tolerance = 1e-12 // Gradient magnitude tolerance for the 3D stacking algorithm
 params.metric = "MI" // Metric for the 3D stacking algorithm
 
-// Processes
-process create_mosaic_grid {
-    cpus params.processes
-
+process resample_mosaic_grid {
     input:
-        tuple val(slice_id), path(tiles)
+        tuple val(slice_id), path(mosaic_grid)
     output:
-        tuple val(slice_id), path("*.ome.zarr")
+        tuple val(slice_id), path("mosaic_grid_3d_${params.resolution}um.ome.zarr")
     script:
     """
-    linum_create_mosaic_grid_3d.py mosaic_grid_3d_${params.resolution}um.ome.zarr --from_tiles_list $tiles --resolution ${params.resolution} --n_processes ${params.processes} --axial_resolution ${params.axial_resolution}
+    unzip $mosaic_grid -d out_unzip
+    mv out_unzip/*.ome.zarr ./mosaic_grid_z${slice_id}.ome.zarr
+    linum_resample_mosaic_grid.py mosaic_grid_z${slice_id}.ome.zarr "mosaic_grid_3d_${params.resolution}um.ome.zarr" -r ${params.resolution}
     """
 }
 
@@ -111,7 +111,6 @@ process beam_profile_correction {
     """
 }
 
-// TODO: Use omezarr for attenuation correction (lower memory usage)
 process attenuation_correction {
     input:
         tuple val(slice_id), path(slice_3d)
@@ -122,18 +121,6 @@ process attenuation_correction {
     linum_compute_attenuation.py ${slice_3d} "slice_z${slice_id}_${params.resolution}um_attn.ome.zarr" --mask_all
     linum_compute_attenuation_bias_field.py "slice_z${slice_id}_${params.resolution}um_attn.ome.zarr" "slice_z${slice_id}_${params.resolution}um_attn_bias.ome.zarr" --isInCM
     linum_compensate_attenuation.py ${slice_3d} "slice_z${slice_id}_${params.resolution}um_attn_bias.ome.zarr" "slice_z${slice_id}_${params.resolution}um_attn_corr.ome.zarr"
-    """
-}
-
-process estimate_xy_shifts_from_metadata {
-    publishDir "$params.output/$task.process"
-    input:
-        path(input_dir)
-    output:
-        path("shifts_xy.csv")
-    script:
-    """
-    linum_estimate_xy_shift_from_metadata.py ${input_dir} shifts_xy.csv
     """
 }
 
@@ -184,28 +171,17 @@ process apply_transforms_to_stack {
 }
 
 workflow {
-    if (params.use_old_folder_structure)
-    {
-        inputSlices = Channel.fromPath("$params.input/tile_x*_y*_z*/", type: 'dir')
-                            .map{path -> tuple(path.toString().substring(path.toString().length() - 2), path)}
-                            .groupTuple()
-    }
-    else
-    {
-        inputSlices = Channel.fromPath("$params.input/**/tile_x*_y*_z*/", type: 'dir')
-                            .map{path -> tuple(path.toString().substring(path.toString().length() - 2), path)}
-                            .groupTuple()
-    }
-    input_dir_channel = Channel.fromPath("$params.input", type: 'dir')
+    inputSlices = Channel.fromFilePairs("$params.input/*.ome.zarr.zip")
+    inputSlices.view()
 
-    // Estimate XY shifts from metadata
-    estimate_xy_shifts_from_metadata(input_dir_channel)
+    shifts_xy = Channel.fromPath("$params.shifts_xy")
+    shifts_xy.view()
 
     // Generate a 3D mosaic grid.
-    create_mosaic_grid(inputSlices)
+    resample_mosaic_grid(inputSlices)
 
     // Clip values to remove hyperintensities
-    clip_outliers(create_mosaic_grid.out)
+    clip_outliers(resample_mosaic_grid.out)
 
     // Focal plane curvature compensation
     fix_focal_curvature(clip_outliers.out)
@@ -236,7 +212,7 @@ workflow {
         .toSortedList{a, b -> a[0] <=> b[0]}
         .flatten().collate(2)
         .map{_meta, filename -> filename}.collect()
-        .merge(estimate_xy_shifts_from_metadata.out){a, b -> tuple(a, b)}
+        .merge(shifts_xy.out){a, b -> tuple(a, b)}
     stack_mosaics_into_3d_volume(stack_in_channel)
 
     all_indices = inputSlices.map{meta, _files -> meta}
