@@ -26,8 +26,9 @@ process resample_mosaic_grid {
         tuple val(slice_id), path("mosaic_grid_3d_${params.resolution}um.ome.zarr")
     script:
     """
-    tar -xvf $mosaic_grid --directory out_untar
-    mv out_untar/*.ome.zarr ./mosaic_grid_z${slice_id}.ome.zarr
+    tar -xvf $mosaic_grid
+    # safety measure to ensure we have the expected filename
+    mv *.ome.zarr mosaic_grid_z${slice_id}.ome.zarr
     linum_resample_mosaic_grid.py mosaic_grid_z${slice_id}.ome.zarr "mosaic_grid_3d_${params.resolution}um.ome.zarr" -r ${params.resolution}
 
     # cleanup; we don't need these temp files in our working directory
@@ -175,6 +176,12 @@ process apply_transforms_to_stack {
 
 workflow {
     inputSlices = Channel.fromFilePairs("$params.input/mosaic_grid_z*.ome.zarr.tar.gz", size: -1)
+        .map { id, files ->
+            // Extract the two digits after 'z' using regex
+            def matcher = id =~ /z(\d{2})/
+            def key = matcher ? matcher[0][1] : "unknown"
+            [key, files]
+        }
     inputSlices.view()
 
     shifts_xy = Channel.fromPath("$params.shifts_xy")
