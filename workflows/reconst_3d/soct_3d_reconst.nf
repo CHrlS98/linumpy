@@ -174,7 +174,7 @@ process apply_transforms_to_stack {
 }
 
 workflow {
-    inputSlices = Channel.fromPath("$params.input/mosaic_grid_z*.ome.zarr.tar.gz")
+    inputSlices = Channel.fromFilePairs("$params.input/mosaic_grid_z*.ome.zarr.tar.gz", size: -1)
     inputSlices.view()
 
     shifts_xy = Channel.fromPath("$params.shifts_xy")
