@@ -77,7 +77,7 @@ def compute_volume_shape(mosaics_files, mosaics_depth,
     nx = int((x1 - x0))
     ny = int((y1 - y0))
 
-    volume_shape = (mosaics_depth*len(mosaics_files), nx, ny)
+    volume_shape = (int(mosaics_depth)*len(mosaics_files), nx, ny)
     return volume_shape, x0, y0
 
 

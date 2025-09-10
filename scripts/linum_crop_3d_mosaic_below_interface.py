@@ -85,7 +85,7 @@ def main():
 
     # Compute end index for cropping
     surface_idx = max(0, min(avg_iface, vol.shape[0] - 1))
-    end_idx = surface_idx + depth_px
+    end_idx = int(surface_idx + depth_px)
     if end_idx > vol.shape[0]:
         if args.pad_after:
             out_shape = (end_idx, vol.shape[1], vol.shape[2])

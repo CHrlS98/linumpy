@@ -74,7 +74,7 @@ def main():
     # Saving the attenuation
     attn = np.moveaxis(attn, (0, 1, 2), (2, 1, 0))
     save_omezarr(attn.astype(np.float32), args.output,
-              voxel_size=res, chunks=zarr_vol.chunks)
+                 voxel_size=res, chunks=zarr_vol.chunks)
 
 
 if __name__ == "__main__":
