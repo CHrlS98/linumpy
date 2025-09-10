@@ -26,9 +26,12 @@ process resample_mosaic_grid {
         tuple val(slice_id), path("mosaic_grid_3d_${params.resolution}um.ome.zarr")
     script:
     """
-    unzip $mosaic_grid -d out_unzip
-    mv out_unzip/*.ome.zarr ./mosaic_grid_z${slice_id}.ome.zarr
+    tar -xvf $mosaic_grid --directory out_untar
+    mv out_untar/*.ome.zarr ./mosaic_grid_z${slice_id}.ome.zarr
     linum_resample_mosaic_grid.py mosaic_grid_z${slice_id}.ome.zarr "mosaic_grid_3d_${params.resolution}um.ome.zarr" -r ${params.resolution}
+
+    # cleanup; we don't need these temp files in our working directory
+    rm -rf mosaic_grid_z${slice_id}.ome.zarr
     """
 }
 
