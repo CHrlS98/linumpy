@@ -215,7 +215,7 @@ workflow {
         .toSortedList{a, b -> a[0] <=> b[0]}
         .flatten().collate(2)
         .map{_meta, filename -> filename}.collect()
-        .merge(shifts_xy.out){a, b -> tuple(a, b)}
+        .merge(shifts_xy){a, b -> tuple(a, b)}
     stack_mosaics_into_3d_volume(stack_in_channel)
 
     all_indices = inputSlices.map{meta, _files -> meta}
