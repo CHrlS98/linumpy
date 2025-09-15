@@ -27,8 +27,10 @@ process resample_mosaic_grid {
     script:
     """
     tar -xvf $mosaic_grid
+
     # safety measure to ensure we have the expected filename
-    mv *.ome.zarr mosaic_grid_z${slice_id}.ome.zarr
+    mv *.ome.zarr dummy_name.ome.zarr
+    mv dummy_name.ome.zarr mosaic_grid_z${slice_id}.ome.zarr
     linum_resample_mosaic_grid.py mosaic_grid_z${slice_id}.ome.zarr "mosaic_grid_3d_${params.resolution}um.ome.zarr" -r ${params.resolution}
 
     # cleanup; we don't need these temp files in our working directory
