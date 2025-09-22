@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """"Quick reconstruction and processing methods for the S-OCT data."""
-
+import os.path
 import re
 from pathlib import Path
 
@@ -50,9 +50,8 @@ def get_tiles_ids(directory, z: int = None):
     else:
         tiles_to_process = f"tile_*"
     tiles = list(input_directory.rglob(tiles_to_process))
-    tiles = [t for t in tiles if t.name.startswith('tile_')]
+    tiles = [t for t in tiles if t.name.startswith('tile_') and not os.path.isfile(t)]
     tile_ids = get_tiles_ids_from_list(tiles)
-
     return tiles, tile_ids
 
 
@@ -223,7 +222,7 @@ def quick_stitch(directory, z: int, overlap_fraction: float = 0.2, n_rot: int = 
 
         # Load the fringes
         if apply_shift:
-            img = oct.load_image(galvo_shift=galvo_shift)
+            img = oct.load_image(fix_shift=galvo_shift)
         else:
             img = oct.load_image()
 
@@ -257,8 +256,8 @@ def quick_stitch(directory, z: int, overlap_fraction: float = 0.2, n_rot: int = 
     return mosaic
 
 
-def detect_mosaic(directory: str, z: int, margin: float = 0.5, display: bool = False, image_file: str = None,
-                  roi_file: str = None, keep_largest_island: bool = False):
+def detect_mosaic(directory: str, z: int, img: np.ndarray=None,  margin: float = 0.5, display: bool = False, image_file: str = None,
+                  roi_file: str = None, keep_largest_island: bool = False, stitching_settings:dict = None):
     """Detect the tissue in the mosaic and compute the limits of the tissue.
     Parameters
     ----------
@@ -295,7 +294,8 @@ def detect_mosaic(directory: str, z: int, margin: float = 0.5, display: bool = F
     ymax = np.max([p[1] for p in info["tiles_pos_mm"]]) + info["tile_shape_mm"][1] / 2
 
     # Stitch the image using the tile position
-    img = quick_stitch(directory, z=z, use_stage_positions=True)
+    if img is None:
+        img = quick_stitch(directory, z=z, use_stage_positions=True, **stitching_settings)
 
     # Save the quick stitch image
     if image_file is not None:
