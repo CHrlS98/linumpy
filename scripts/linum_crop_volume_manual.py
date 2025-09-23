@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Crop a ome.zarr file manually from upper/lower bounds along each axis.
+Crop a .ome.zarr file manually from upper/lower bounds along each axis.
 """
 import argparse
 from linumpy.io import save_omezarr, read_omezarr
 
 import dask.array as da
+import nibabel as nib
 
 
 def _build_arg_parser():
@@ -25,13 +26,19 @@ def _build_arg_parser():
 def main():
     parser = _build_arg_parser()
     args = parser.parse_args()
-
-    vol, res = read_omezarr(args.in_volume)
-    darr = da.from_zarr(vol)
-    darr = darr[args.xmin:args.xmax,
-                args.ymin:args.ymax,
-                args.zmin:args.zmax]
-    save_omezarr(darr, args.out_volume, res, vol.chunks)
+    if '.ome.zarr' in args.in_volume:
+        vol, res = read_omezarr(args.in_volume)
+        darr = da.from_zarr(vol)
+        darr = darr[args.xmin:args.xmax,
+                    args.ymin:args.ymax,
+                    args.zmin:args.zmax]
+        save_omezarr(darr, args.out_volume, res, vol.chunks)
+    elif '.nii' in args.in_volume:
+        image = nib.load(args.in_volume)
+        out_image = image.slicer[args.xmin:args.xmax,
+                                 args.ymin:args.ymax,
+                                 args.zmin:args.zmax]
+        nib.save(out_image, args.out_volume)
 
 
 if __name__ == '__main__':

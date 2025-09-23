@@ -8,13 +8,14 @@ import argparse
 import numpy as np
 import nibabel as nib
 import dask.array as da
+import zarr
 
 from linumpy.feature.structure_tensor import\
     compute_structure_tensor,\
     compute_principal_direction,\
     compute_sh,\
     StoreMode
-from linumpy.io.zarr import read_omezarr, save_omezarr
+from linumpy.io.zarr import read_omezarr, save_omezarr, create_tempstore
 from linumpy.utils.io import add_processes_arg, parse_processes_arg
 
 
@@ -61,12 +62,41 @@ def _build_arg_parser():
     return p
 
 
+def update_affine(new_zooms, original_zooms, original_shape, original_affine):
+    axes = []
+    original_extent = []
+    offset = []
+    Rx = np.eye(4)
+    Rx[:3, :3] = np.diag(1/original_zooms)
+    affine = np.dot(original_affine, Rx)
+    for j in range(3):
+        original_extent.append(original_shape[j] * original_zooms[j])
+        axes.append(
+            np.round(original_shape[j] * original_zooms[j] / new_zooms[j] - 0.0001))
+        offset.append(0.5 * ((new_zooms[j] - original_zooms[j]) + (
+                            original_extent[j] - (axes[j] * new_zooms[j]))) / original_zooms[j])
+        for i in range(3):
+            affine[i, 3] += 0.5 * ((new_zooms[j] - original_zooms[j]) + (
+                        original_extent[j] - (axes[j] * new_zooms[j]))) * \
+                                affine[i, j]
+    Rx = np.eye(4)
+    Rx[:3, :3] = np.diag(new_zooms)
+    affine = np.dot(affine, Rx)
+    return affine
+
+
 def main():
     parser = _build_arg_parser()
     args = parser.parse_args()
 
     if '.ome.zarr' in args.in_image:
+        nii_image = None
         data, res = read_omezarr(args.in_image, level=args.level)
+    elif '.nii' in args.in_image:
+        nii_image = nib.load(args.in_image)
+        print(nii_image.shape)
+        data = zarr.from_array(create_tempstore(), data=nii_image.get_fdata())
+        res = nii_image.header.get_zooms()[:3]
     else:
         parser.error("Input image must be .ome.zarr.")
 
@@ -76,6 +106,8 @@ def main():
     # Axis order is (z, y, x)
     sigma_to_vox = np.array([args.sigma]) / np.asarray(res)
     rho_to_vox = np.array([args.rho]) / np.asarray(res)
+
+    print(sigma_to_vox, rho_to_vox)
 
     # Compute the structure tensor
     # /!\ disk space required will be 6 times the size of the input image
@@ -101,7 +133,12 @@ def main():
     new_voxel_size_to_vox = (np.array([args.new_voxel_size]) / np.asarray(res)).astype(int)
     sh = compute_sh(data, peak, coherence, new_voxel_size_to_vox, args.sh_order, args.reg)
 
-    nib.save(nib.Nifti1Image(sh, np.diag(np.append([args.new_voxel_size]*3, [1.0]))), args.out_sh)
+    affine = np.diag(np.append([args.new_voxel_size]*3, [1.0]))
+    if nii_image is not None:
+        affine = update_affine(np.array([args.new_voxel_size]*3), np.array(res),
+                               nii_image.shape, nii_image.affine)
+
+    nib.save(nib.Nifti1Image(sh, affine), args.out_sh)
 
 
 if __name__ == '__main__':
