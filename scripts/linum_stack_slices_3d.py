@@ -105,7 +105,7 @@ def main():
     stack_offset = fixed_offsets[0]
     if args.normalize:
         vol = normalize(vol)
-    output_vol[:stack_offset] = vol[:stack_offset]
+    output_vol[:vol.shape[0]] = vol
 
     # assemble volume
     for i in tqdm(range(len(mosaics_sorted)), desc='Apply transforms to volume'):
@@ -121,9 +121,11 @@ def main():
             next_fixed_offset = fixed_offsets[i + 1]
         else:
             next_fixed_offset = vol.shape[0]
+        len_register_vol = min(output_vol.shape[0] - stack_offset, register_vol.shape[0])
+        print(len_register_vol)
 
-        output_vol[stack_offset:stack_offset+next_fixed_offset] =\
-            register_vol[current_moving_offset:current_moving_offset+next_fixed_offset]
+        output_vol[stack_offset:stack_offset+len_register_vol] +=\
+            register_vol[current_moving_offset:current_moving_offset+len_register_vol]
         stack_offset += next_fixed_offset
 
     output_vol.finalize(res)
