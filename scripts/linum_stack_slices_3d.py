@@ -71,7 +71,6 @@ def get_input(mosaics_dir, transforms_dir, parser):
         mosaics_sorted.append(f)
         transforms.append(sitk.ReadTransform(current_mat_file))
         offsets.append(np.loadtxt(current_txt_file))
-    print(first_mosaic, mosaics_sorted, transforms, np.array(offsets, dtype=int))
     return first_mosaic, mosaics_sorted, transforms, np.array(offsets, dtype=int)
 
 
@@ -94,18 +93,24 @@ def main():
     vol, res = read_omezarr(first_mosaic)
     _, nr, nc = vol.shape
 
-    fixed_offsets = offsets[:, 0]
-    moving_offsets = offsets[:, 1]
-    nz = np.sum(fixed_offsets - moving_offsets) + vol.shape[0]  # because we add the last volume as a whole
+    # fixed offsets is where the moving volume will start in the output volume
+    fixed_offsets = offsets[:, 0] - offsets[:, 1]
+    nz = np.sum(fixed_offsets) + vol.shape[0]  # because we add the last volume as a whole
     output_shape = (nz, nr, nc)
 
     output_vol = OmeZarrWriter(args.out_stack, output_shape, vol.chunks, dtype=vol.dtype)
 
     # fixed_offsets[0] is where the next moving slice will start
     stack_offset = fixed_offsets[0]
+    vol = vol[:]
     if args.normalize:
         vol = normalize(vol)
     output_vol[:vol.shape[0]] = vol
+
+    test_a_line = np.zeros((output_vol.shape[0], len(mosaics_sorted)+1))
+    test_a_line[:vol.shape[0], 0] = vol[:, vol.shape[1]//2, vol.shape[2]//2]
+
+    end_of_previous_vol = np.count_nonzero(np.sum(vol, axis=(1, 2)) > 0)
 
     # assemble volume
     for i in tqdm(range(len(mosaics_sorted)), desc='Apply transforms to volume'):
@@ -116,16 +121,15 @@ def main():
         if args.normalize:
             register_vol = normalize(register_vol)
 
-        current_moving_offset = moving_offsets[i]
         if i < len(mosaics_sorted) - 1:
             next_fixed_offset = fixed_offsets[i + 1]
         else:
             next_fixed_offset = vol.shape[0]
-        len_register_vol = min(output_vol.shape[0] - stack_offset, register_vol.shape[0])
-        print(len_register_vol)
 
-        output_vol[stack_offset:stack_offset+len_register_vol] +=\
-            register_vol[current_moving_offset:current_moving_offset+len_register_vol]
+        print('overlap: ', end_of_previous_vol - stack_offset)
+
+        output_vol[stack_offset:stack_offset+register_vol.shape[0]] += register_vol[:]
+        end_of_previous_vol = stack_offset + np.count_nonzero(np.sum(register_vol, axis=(1, 2)) > 0)
         stack_offset += next_fixed_offset
 
     output_vol.finalize(res)
