@@ -11,6 +11,8 @@ from pathlib import Path
 import numpy as np
 from linumpy.io.zarr import read_omezarr, OmeZarrWriter
 from linumpy.stitching.registration import apply_transform
+from linumpy.preproc.xyzcorr import findCuttingPlane
+from linumpy.utils.mosaic_grid import getDiffusionBlendingWeights
 from tqdm import tqdm
 import os
 
@@ -94,8 +96,9 @@ def main():
     _, nr, nc = vol.shape
 
     # fixed offsets is where the moving volume will start in the output volume
-    fixed_offsets = offsets[:, 0] - offsets[:, 1]
-    nz = np.sum(fixed_offsets) + vol.shape[0]  # because we add the last volume as a whole
+    fixed_offsets = offsets[:, 0]
+    moving_offsets = offsets[:, 1]
+    nz = np.sum(fixed_offsets - moving_offsets) + vol.shape[0]  # because we add the last volume as a whole
     output_shape = (nz, nr, nc)
 
     output_vol = OmeZarrWriter(args.out_stack, output_shape, vol.chunks, dtype=vol.dtype)
@@ -127,6 +130,10 @@ def main():
             next_fixed_offset = vol.shape[0]
 
         print('overlap: ', end_of_previous_vol - stack_offset)
+        blending_mask = np.zeros_like(register_vol, dtype=bool)
+        blending_mask[moving_offsets[i]:] = True
+        alpha = getDiffusionBlendingWeights(blending_mask)
+        print(alpha.shape)
 
         output_vol[stack_offset:stack_offset+register_vol.shape[0]] += register_vol[:]
         end_of_previous_vol = stack_offset + np.count_nonzero(np.sum(register_vol, axis=(1, 2)) > 0)

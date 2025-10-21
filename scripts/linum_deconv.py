@@ -127,12 +127,14 @@ def main():
         y_image_shift = y_volume_shift[i]
         gain = np.sum(y_image_shift) / np.sum(x_image)
         rgb = np.zeros((x_image.shape[0], x_image.shape[1], 3))
-        rgb[..., 0] = gain * x_image / np.max(y_image_shift)  # blurrier
-        rgb[..., 1] = y_image_shift / np.max(y_image_shift)  # sharper
-        err = np.abs(rgb[..., 0] - rgb[..., 1])
+        vmax = np.percentile(y_image_shift, 99)
+        rgb[..., 0] = gain * x_image / vmax  # blurrier
+        rgb[..., 1] = np.clip(y_image_shift / vmax, 0, 1)  # sharper
+        gray = np.sqrt(rgb[..., 0]**2 + rgb[..., 1]**2)
+
         ii = i // n_items_per_row
         jj = i % n_items_per_row
-        axes_a[ii, jj].imshow(err[::-1])
+        axes_a[ii, jj].imshow(gray[::-1])
         axes_a[ii, jj].set_title(f'gain: {gain:.2f}')
     fig_a.set_size_inches(12, 4)
     fig_a.tight_layout()
