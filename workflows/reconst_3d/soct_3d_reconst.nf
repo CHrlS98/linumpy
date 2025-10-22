@@ -6,37 +6,14 @@ nextflow.enable.dsl = 2
 // Input: Directory containing input mosaic grids
 // Output: 3D reconstruction
 
-// Global parameters
-params.input = ""
-params.shifts_xy = "$params.input/shifts_xy.csv"
-params.output = ""
-params.processes = 1 // Maximum number of python processes per nextflow process
-
-// Resolution of the reconstruction in micron/pixel
-params.resolution = 10  // can be set to -1 to skip
-
-// Clipping of outliers values
-params.clip_enabled = false
-params.clip_percentile_lower = 1.0
-params.clip_percentile_upper = 99.9
-params.normalize = false  // rescale between 0-1
-
-// Minimum depth of the cropped image in microns
-params.crop_interface_out_depth = 600
-
-// Slices registration parameters
-params.moving_slice_first_index = 4 // Skip this many voxels from the top of the moving 3d mosaic when registering slices
-params.transform = 'affine' // One of 'affine', 'euler', 'translation'
-params.registration_metric = 'MSE' // One of 'MSE', 'CC', 'AntsCC' or 'MI'
-
 process resample_mosaic_grid {
     input:
         tuple val(slice_id), path(mosaic_grid)
     output:
-        tuple val(slice_id), path("mosaic_grid_3d_${params.resolution}um.ome.zarr")
+        tuple val(slice_id), path("mosaic_grid_z${slice_id}_resampled.ome.zarr")
     script:
     """
-    linum_resample_mosaic_grid.py ${mosaic_grid} "mosaic_grid_3d_${params.resolution}um.ome.zarr" -r ${params.resolution}
+    linum_resample_mosaic_grid.py ${mosaic_grid} "mosaic_grid_z${slice_id}_resampled.ome.zarr" -r ${params.resolution}
     """
 }
 
@@ -44,15 +21,15 @@ process clip_outliers {
     input:
         tuple val(slice_id), path(mosaic_grid)
     output:
-        tuple val(slice_id), path("mosaic_grid_3d_${params.resolution}um_clip_outliers.ome.zarr")
+        tuple val(slice_id), path("mosaic_grid_z${slice_id}_clip_outliers.ome.zarr")
     script:
     String options = ""
-    if(params.normalize)
+    if(params.clip_rescale)
     {
-        options += "--normalize"
+        options += "--rescale"
     }
     """
-    linum_clip_percentile.py ${mosaic_grid} "mosaic_grid_3d_${params.resolution}um_clip_outliers.ome.zarr" --percentile_lower ${params.clip_percentile_lower} --percentile_upper ${params.clip_percentile_upper} ${options}
+    linum_clip_percentile.py ${mosaic_grid} "mosaic_grid_z${slice_id}_clip_outliers.ome.zarr" --percentile_lower 0 --percentile_upper ${params.clip_percentile_upper} ${options}
     """
 }
 
@@ -60,10 +37,10 @@ process fix_focal_curvature {
     input:
         tuple val(slice_id), path(mosaic_grid)
     output:
-        tuple val(slice_id), path("*_focalFix.ome.zarr")
+        tuple val(slice_id), path("mosaic_grid_z${slice_id}_focal_fix.ome.zarr")
     script:
     """
-    linum_detect_focal_curvature.py ${mosaic_grid} mosaic_grid_3d_${params.resolution}um_focalFix.ome.zarr
+    linum_detect_focal_curvature.py ${mosaic_grid} "mosaic_grid_z${slice_id}_focal_fix.ome.zarr"
     """
 }
 
@@ -71,10 +48,10 @@ process fix_illumination {
     input:
         tuple val(slice_id), path(mosaic_grid)
     output:
-        tuple val(slice_id), path("*_illuminationFix.ome.zarr")
+        tuple val(slice_id), path("mosaic_grid_z${slice_id}_illum_fix.ome.zarr")
     script:
     """
-    linum_fix_illumination_3d.py ${mosaic_grid} mosaic_grid_3d_${params.resolution}um_illuminationFix.ome.zarr --n_processes ${params.processes}
+    linum_fix_illumination_3d.py ${mosaic_grid} "mosaic_grid_z${slice_id}_illum_fix.ome.zarr" --n_processes ${params.processes}
     """
 }
 
@@ -82,10 +59,10 @@ process generate_aip {
     input:
         tuple val(slice_id), path(mosaic_grid)
     output:
-        tuple val(slice_id), path("aip.ome.zarr")
+        tuple val(slice_id), path("mosaic_grid_z${slice_id}_aip.ome.zarr")
     script:
     """
-    linum_aip.py ${mosaic_grid} aip.ome.zarr
+    linum_aip.py ${mosaic_grid} "mosaic_grid_z${slice_id}_aip.ome.zarr"
     """
 }
 
@@ -93,10 +70,10 @@ process estimate_xy_transformation {
     input:
         tuple val(slice_id), path(aip)
     output:
-        tuple val(slice_id), path("transform_xy.npy")
+        tuple val(slice_id), path("z${slice_id}_transform_xy.npy")
     script:
     """
-    linum_estimate_transform.py ${aip} transform_xy.npy
+    linum_estimate_transform.py ${aip} "z${slice_id}_transform_xy.npy"
     """
 }
 
@@ -104,10 +81,10 @@ process stitch_3d {
     input:
         tuple val(slice_id), path(mosaic_grid), path(transform_xy)
     output:
-        tuple val(slice_id), path("slice_z${slice_id}_${params.resolution}um.ome.zarr")
+        tuple val(slice_id), path("slice_z${slice_id}_stitch_3d.ome.zarr")
     script:
     """
-    linum_stitch_3d.py ${mosaic_grid} ${transform_xy} slice_z${slice_id}_${params.resolution}um.ome.zarr
+    linum_stitch_3d.py ${mosaic_grid} ${transform_xy} "slice_z${slice_id}_stitch_3d.ome.zarr"
     """
 }
 
@@ -115,22 +92,10 @@ process beam_profile_correction {
     input:
         tuple val(slice_id), path(slice_3d)
     output:
-        tuple val(slice_id), path("slice_z${slice_id}_${params.resolution}um_axial_corr.ome.zarr")
+        tuple val(slice_id), path("slice_z${slice_id}_axial_corr.ome.zarr")
     script:
     """
-    linum_compensate_psf_model_free.py ${slice_3d} "slice_z${slice_id}_${params.resolution}um_axial_corr.ome.zarr"
-    """
-}
-
-process estimate_xy_shifts_from_metadata {
-    publishDir "$params.output/$task.process"
-    input:
-        path(input_dir)
-    output:
-        path("shifts_xy.csv")
-    script:
-    """
-    linum_estimate_xy_shift_from_metadata.py ${input_dir} shifts_xy.csv
+    linum_compensate_psf_model_free.py ${slice_3d} "slice_z${slice_id}_axial_corr.ome.zarr"
     """
 }
 
@@ -138,10 +103,10 @@ process crop_interface {
     input:
         tuple val(slice_id), path(image)
     output:
-        tuple val(slice_id), path("slice_z${slice_id}_${params.resolution}um_crop.ome.zarr")
+        tuple val(slice_id), path("slice_z${slice_id}_crop_interface.ome.zarr")
     script:
     """
-    linum_crop_3d_mosaic_below_interface.py $image "slice_z${slice_id}_${params.resolution}um_crop.ome.zarr" --depth $params.crop_interface_out_depth --crop_before_interface --pad_after
+    linum_crop_3d_mosaic_below_interface.py $image "slice_z${slice_id}_crop_interface.ome.zarr" --depth $params.crop_interface_out_depth --crop_before_interface
     """
 }
 
@@ -165,9 +130,18 @@ process register_pairwise {
     output:
         path("*")
     script:
+    String options = ""
+    if(params.pairwise_mask_background)
+    {
+        options += "--estimate_mask "
+    }
+    if(params.pairwise_match_histograms)
+    {
+        options += "--match_histograms"
+    }
     """
     dirname=`basename $moving_vol .ome.zarr`
-    linum_estimate_transform_pairwise.py ${fixed_vol} ${moving_vol} \$dirname --moving_slice_index $params.moving_slice_first_index --transform $params.transform --metric $params.registration_metric
+    linum_estimate_transform_pairwise.py ${fixed_vol} ${moving_vol} \$dirname --moving_slice_index $params.moving_slice_first_index --transform $params.pairwise_transform --metric $params.pairwise_registration_metric ${options}
     """
 }
 
@@ -176,10 +150,11 @@ process stack {
     input:
         tuple path("mosaics/*"), path("transforms/*")
     output:
-        path("3d_volume.ome.zarr")
+        tuple path("3d_volume.ome.zarr"), path("3d_volume.ome.zarr.zip")
     script:
     """
     linum_stack_slices_3d.py mosaics transforms 3d_volume.ome.zarr --normalize
+    zip -r 3d_volume.ome.zarr 3d_volume.ome.zarr.zip
     """
 }
 
@@ -199,10 +174,11 @@ workflow {
             error("XY shifts file not found at path '$params.shifts_xy'.")
         }
 
-    // Generate a 3D mosaic grid.
+    // [Optional] Generate a 3D mosaic grid.
     resampled_channel = params.resolution > 0 ? resample_mosaic_grid(inputSlices) : inputSlices
 
-    // Input is optionally clipped
+    // [Optional] Input is optionally clipped
+    // TODO: Separate clipping and rescale
     clipped_channel = params.clip_enabled ? clip_outliers(resampled_channel) : resampled_channel
 
     // Focal plane curvature
