@@ -18,6 +18,8 @@ def _build_arg_parser():
                    help="Full path to an OME-ZARR directory")
     p.add_argument("output",
                    help="Full path to the output nifti file")
+    p.add_argument('--level', type=int, default=0,
+                   help='The pyramid level in the input OME-ZARR file. [%(default)s]')
     p.add_argument("-r", "--resolution", type=float, default=10.0,
                    help="Output resolution in micron (default=%(default)s)")
     p.add_argument("-i", "--isotropic", action="store_true",
@@ -33,7 +35,8 @@ def main():
     args = p.parse_args()
 
     # Load the ome-zarr volume and choose the scale
-    vol, zarr_resolution = read_omezarr(args.input)
+    vol, zarr_resolution = read_omezarr(args.input, level=args.level)
+    print(f'Input resolution {zarr_resolution} mm - requested resolution {args.resolution} microns.')
 
     # zarr_resolution is already in mm but resolution given in microns
     if args.save_mm:
