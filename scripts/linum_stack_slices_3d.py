@@ -145,8 +145,8 @@ def main():
 
         end_of_vol = stack_offset + register_vol.shape[0]
         output_vol[stack_offset:end_of_vol] =\
-            alphas*output_vol[stack_offset:end_of_vol] +\
-            (1.0 - alphas)*register_vol[:]
+            (1.0-alphas)*output_vol[stack_offset:end_of_vol] +\
+            (alphas)*register_vol[:]
 
         end_of_previous_vol = end_of_vol
         stack_offset += next_fixed_offset - current_moving_offset
