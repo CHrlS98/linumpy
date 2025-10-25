@@ -109,7 +109,9 @@ def main():
     stack_offset = fixed_offsets[0]
     if args.normalize:
         vol = normalize(vol)
-    output_vol[:stack_offset] = vol[:stack_offset]
+    output_vol[:vol.shape[0]] = vol[:]
+
+    end_of_previous_vol = vol.shape[0]
 
     # assemble volume
     for i in tqdm(range(len(mosaics_sorted)), desc='Apply transforms to volume'):
@@ -127,11 +129,22 @@ def main():
         else:
             next_fixed_offset = vol.shape[0] - current_moving_offset
 
+        overlap = end_of_previous_vol - stack_offset
+        print(stack_offset, end_of_previous_vol, overlap)
+
+        blending_mask_fixed = np.zeros(register_vol.shape, dtype=bool)
+        blending_mask_fixed[:overlap] = True
+        blending_mask_moving = np.ones(register_vol.shape, dtype=bool)
+
+        alphas = getDiffusionBlendingWeights(blending_mask_fixed, blending_mask_moving)
+        print(alphas.min(), alphas.max())
+
         print('Output vol indices:', stack_offset, stack_offset+next_fixed_offset)
         print('Register vol indices:', current_moving_offset, current_moving_offset+next_fixed_offset)
 
-        output_vol[stack_offset:stack_offset-current_moving_offset+register_vol.shape[0]] =\
-            register_vol[current_moving_offset:]
+        end_of_vol = stack_offset - current_moving_offset + register_vol.shape[0]
+        output_vol[stack_offset:end_of_vol] = register_vol[current_moving_offset:]
+        end_of_previous_vol = end_of_vol
         stack_offset += next_fixed_offset - current_moving_offset
 
     output_vol.finalize(res)
