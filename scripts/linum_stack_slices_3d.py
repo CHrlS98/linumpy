@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 from linumpy.io.zarr import read_omezarr, OmeZarrWriter
 from linumpy.stitching.registration import apply_transform
+from linumpy.utils.mosaic_grid import getDiffusionBlendingWeights
 from tqdm import tqdm
 import os
 
@@ -128,8 +129,9 @@ def main():
 
         print('Output vol indices:', stack_offset, stack_offset+next_fixed_offset)
         print('Register vol indices:', current_moving_offset, current_moving_offset+next_fixed_offset)
-        output_vol[stack_offset:stack_offset+next_fixed_offset] =\
-            register_vol[current_moving_offset:current_moving_offset+next_fixed_offset]
+
+        output_vol[stack_offset:stack_offset-current_moving_offset+register_vol.shape[0]] =\
+            register_vol[current_moving_offset:]
         stack_offset += next_fixed_offset - current_moving_offset
 
     output_vol.finalize(res)
