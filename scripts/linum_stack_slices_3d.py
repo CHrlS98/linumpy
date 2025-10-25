@@ -124,10 +124,11 @@ def main():
             register_vol = normalize(register_vol)
 
         current_moving_offset = moving_offsets[i]
+        register_vol = register_vol[current_moving_offset:]
         if i < len(mosaics_sorted) - 1:
             next_fixed_offset = fixed_offsets[i + 1]
         else:
-            next_fixed_offset = vol.shape[0] - current_moving_offset
+            next_fixed_offset = register_vol.shape[0]
 
         overlap = end_of_previous_vol - stack_offset
         print(stack_offset, end_of_previous_vol, overlap)
@@ -140,12 +141,12 @@ def main():
         print(alphas.min(), alphas.max())
 
         print('Output vol indices:', stack_offset, stack_offset+next_fixed_offset)
-        print('Register vol indices:', current_moving_offset, current_moving_offset+next_fixed_offset)
+        print('Register vol indices:', 0, next_fixed_offset)
 
-        end_of_vol = stack_offset - current_moving_offset + register_vol.shape[0]
+        end_of_vol = stack_offset + register_vol.shape[0]
         output_vol[stack_offset:end_of_vol] =\
             alphas*output_vol[stack_offset:end_of_vol] +\
-            (1.0 - alphas)*register_vol[current_moving_offset:]
+            (1.0 - alphas)*register_vol[:]
 
         end_of_previous_vol = end_of_vol
         stack_offset += next_fixed_offset - current_moving_offset
