@@ -143,7 +143,10 @@ def main():
         print('Register vol indices:', current_moving_offset, current_moving_offset+next_fixed_offset)
 
         end_of_vol = stack_offset - current_moving_offset + register_vol.shape[0]
-        output_vol[stack_offset:end_of_vol] = register_vol[current_moving_offset:]
+        output_vol[stack_offset:end_of_vol] =\
+            alphas*output_vol[stack_offset:end_of_vol] +\
+            (1.0 - alphas)*register_vol[current_moving_offset:]
+
         end_of_previous_vol = end_of_vol
         stack_offset += next_fixed_offset - current_moving_offset
 
