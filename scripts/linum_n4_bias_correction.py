@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 #-*- coding:utf-8 -*-
 import argparse
-import numpy as np
 import SimpleITK as sitk
 from linumpy.io.zarr import read_omezarr, save_omezarr
 import matplotlib
@@ -34,10 +33,13 @@ def main():
 
     corrector = sitk.N4BiasFieldCorrectionImageFilter()
 
-    inputImage=  sitk.GetImageFromArray(vol[:])
+    inputImage=  sitk.GetImageFromArray(vol[:])  # this flips the order of axes (z, y, x) -> (x, y, z)
     maskImage = sitk.OtsuThreshold(inputImage, 0, 1, 200)
     numberFittingLevels = 4
 
+    # More control points along the slicing axis
+    corrector.SetSplineOrder(2)
+    corrector.SetNumberOfControlPoints([3, 3, 8])
     corrector.SetMaximumNumberOfIterations([50]*numberFittingLevels)
     corrector.Execute(inputImage, maskImage)
 
@@ -50,7 +52,7 @@ def main():
     full_image = sitk.GetImageFromArray(full_vol[:])
     log_bias_field = corrector.GetLogBiasFieldAsImage(full_image)
 
-    corrected_image_full_resolution = full_image / sitk.Exp(log_bias_field)
+    corrected_image_full_resolution = full_image / sitk.Cast(sitk.Exp(log_bias_field), full_image.GetPixelID())
 
     corrected_vol = sitk.GetArrayFromImage(corrected_image_full_resolution)
     save_omezarr(da.from_array(corrected_vol), args.out_image, voxel_size=full_res)
