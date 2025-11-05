@@ -25,10 +25,13 @@ def _build_arg_parser():
                    help='Use GPU. Else runs on CPU.')
     p.add_argument('--mu', nargs=2, type=float, default=[0.17, 0.003],
                    help='Optimizer parameters. Recommended parameters:\n'
-                        '- [0.17, 0.003] or [0.23, 0.003] if stripes are thin and impairment is low.\n'
-                        '- [0.33, 0.003] or [0.4,0.007] if stripes are wider and corruptions\n'
-                        '    severely influence the visual impression.\n'
-                        '- [0.5, 0.017] if corruptions are severe and stripes are of\n'
+                        '- [0.17, 0.003] or [0.23, 0.003]:\n'
+                        '    If stripes are thin and impairment is low.\n'
+                        '- [0.33, 0.003] or [0.4,0.007]:\n'
+                        '    If stripes are wider and corruptions severely\n'
+                        '    influence the visual impression.\n'
+                        '- [0.5, 0.017]:\n'
+                        '    If corruptions are severe and stripes are of\n'
                         '    short length (on the scale of structures).')
     return p
 
