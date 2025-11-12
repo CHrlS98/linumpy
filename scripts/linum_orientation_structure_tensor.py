@@ -91,7 +91,6 @@ def main():
     pdir = evecs_full[..., 0]
 
     affine_im_inv = np.linalg.inv(in_im.affine)
-    print('here')
 
     sf_sphere = get_sphere(name='repulsion200')
     basis_type, legacy = SH_BASES[args.sh_basis]
