@@ -1,4 +1,5 @@
 """
+[Note - 2025/11/14]
 Code adapted from https://github.com/lens-biophotonics/Foa3D. (MIT license copied below)
 
 ================================
@@ -57,54 +58,6 @@ def divide_nonzero(nd_array1, nd_array2, new_val=1e-10):
     divided = np.divide(nd_array1, divisor)
 
     return divided
-
-def normalize_angle(angle, lower=0.0, upper=360.0, dtype=None):
-    """
-    Normalize angle to [lower, upper) range.
-
-    Parameters
-    ----------
-    angle: numpy.ndarray (dtype=float)
-        angular values to be normalized (in degrees)
-
-    lower: float
-        lower limit (default: 0.0)
-
-    upper: float
-        upper limit (default: 360.0)
-
-    dtype:
-        output data type
-
-    Returns
-    -------
-    angle: numpy.ndarray (dtype=float)
-        angular values (in degrees) normalized within [lower, upper)
-
-    Raises
-    ------
-    ValueError
-      if lower >= upper
-    """
-    # check input variables
-    if lower >= upper:
-        raise ValueError(f"Invalid lower and upper angular limits: ({lower}, {upper})")
-
-    # apply corrections
-    dvsr = abs(lower) + abs(upper)
-    corr_1 = np.logical_or(angle > upper, angle == lower)
-    angle[corr_1] = lower + np.abs(angle[corr_1] + upper) % dvsr
-
-    corr_2 = np.logical_or(angle < lower, angle == upper)
-    angle[corr_2] = upper - np.abs(angle[corr_2] - lower) % dvsr
-
-    angle[angle == upper] = lower
-
-    # cast to desired data type
-    if dtype is not None:
-        angle = angle.astype(dtype)
-
-    return angle
 
 
 def analyze_hessian_eigen(img, sigma, trunc=4):

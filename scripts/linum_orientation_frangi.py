@@ -58,12 +58,9 @@ def main():
     # Generate RGB map
     rgb = np.abs(direction) * 255
 
-    nib.save(nib.Nifti1Image(direction.astype(np.float32), in_im.affine),
-             args.out_direction)
-    nib.save(nib.Nifti1Image(rgb.astype(np.uint8), in_im.affine),
-             args.out_rgb)
-    nib.save(nib.Nifti1Image(prob.astype(np.float32), in_im.affine),
-             args.out_frangi)
+    nib.save(nib.Nifti1Image(direction.astype(np.float32), in_im.affine), args.out_direction)
+    nib.save(nib.Nifti1Image(rgb.astype(np.uint8), in_im.affine), args.out_rgb)
+    nib.save(nib.Nifti1Image(prob.astype(np.float32), in_im.affine), args.out_frangi)
 
 
 if __name__ == '__main__':
