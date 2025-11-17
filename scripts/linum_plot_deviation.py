@@ -57,12 +57,14 @@ def main():
     theta = np.pi / 2.0 - phi
     theta = np.rad2deg(theta)
 
-    p95 = np.percentile(theta, 95)
+    p60 = np.percentile(theta, 60)
+    p95 = np.percentile(theta, 90)
 
     fig, ax = plt.subplots(1, 1)
     fig.set_size_inches(12, 6)
-    ax.hist(theta, bins=200)
-    ax.axvline(p95)
+    ax.hist(theta, bins=200, color='indigo', rwidth=0.9)
+    ax.axvline(p60, color='lightpink', alpha=0.9)
+    ax.axvline(p95, color='lightskyblue', alpha=0.9)
     ax.set_xlabel('Out-of-plane angle (degrees)')
     ax.set_ylabel('Number of occurrences')
     ax.set_xticks(np.arange(0, 91, 10))
