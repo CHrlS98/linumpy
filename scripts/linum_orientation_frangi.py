@@ -7,7 +7,9 @@ import argparse
 import nibabel as nib
 import numpy as np
 
-from linumpy.feature.foa3d import frangi_filter
+from linumpy.feature.foa3d import frangi_filter as frangi_foa3d
+from linumpy.feature.frangi import frangi_filter as frangi_skimage
+
 EPILOG="""
 [1] Sorelli et al, 2023, "Fiber enhancement and 3D orientation analysis in label-free
     two-photon fluorescence microscopy", Scientific Reports (2023) 13:4160
@@ -38,6 +40,8 @@ def _build_arg_parser():
                    help='Range of sigma used. [%(default)s]')
     p.add_argument('--n_scales', type=int, default=10,
                    help='Number of scales. Must be greater than 1. [%(default)s]')
+    p.add_argument('--use_skimage', action='store_true',
+                   help='Use scikit-image implementation for Frangi filters.')
     return p
 
 
@@ -50,7 +54,12 @@ def main():
 
     scales = np.linspace(args.scale_range[0], args.scale_range[1], args.n_scales)
 
-    prob, direction = frangi_filter(in_data, scales, args.alpha, args.beta, args.gamma)
+    if args.use_skimage:
+        prob, direction = frangi_skimage(in_data, sigmas=scales, alpha=args.alpha,
+                                         beta=args.beta, gamma=args.gamma,
+                                         black_ridges=False)
+    else:
+        prob, direction = frangi_foa3d(in_data, scales, args.alpha, args.beta, args.gamma)
 
     # scale by vesselness probability
     direction = direction * prob[..., None]
