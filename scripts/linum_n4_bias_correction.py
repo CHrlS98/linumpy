@@ -12,9 +12,12 @@ import dask.array as da
 def _build_arg_parser():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawTextHelpFormatter)
-    p.add_argument('in_image')
-    p.add_argument('out_image')
-    p.add_argument('out_screenshot')
+    p.add_argument('in_image',
+                   help='Input image in .ome.zarr format.')
+    p.add_argument('out_image',
+                   help='Output N4-corrected image.')
+    p.add_argument('out_screenshot',
+                   help='Output screenshot for debugging.')
 
     p.add_argument('--level', type=int, default=1,
                    help='Level onto which the bias field is estimated. [%(default)s]')

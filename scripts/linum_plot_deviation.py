@@ -43,26 +43,26 @@ def main():
     reference = im_ref.get_fdata()
     mask = reference > args.threshold
 
-    print('here')
     # reshape peaks
     peaks = np.squeeze(peaks)
     peaks = np.reshape(peaks, mask.shape + (3,))
 
     # take only peaks inside the mask AND with nonzero norm
     peaks = peaks[mask]
-    print(peaks.shape)
     peaks_norm = np.linalg.norm(peaks, axis=-1)
     peaks = peaks[peaks_norm > 0]
-    print(peaks.shape)
     peaks /= peaks_norm[peaks_norm > 0][:, None]
 
     phi = np.arccos(np.abs(peaks.dot(direction)))
     theta = np.pi / 2.0 - phi
     theta = np.rad2deg(theta)
 
+    p95 = np.percentile(theta, 95)
+
     fig, ax = plt.subplots(1, 1)
     fig.set_size_inches(12, 6)
     ax.hist(theta, bins=200)
+    ax.axvline(p95)
     ax.set_xlabel('Out-of-plane angle (degrees)')
     ax.set_ylabel('Number of occurrences')
     ax.set_xticks(np.arange(0, 91, 10))
