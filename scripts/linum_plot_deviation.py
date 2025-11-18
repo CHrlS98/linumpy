@@ -25,6 +25,10 @@ def _build_arg_parser():
     p.add_argument('--threshold', type=float, default=0.0,
                    help='Threshold applied to reference image to remove peaks\n'
                         'belonging to the background. [%(default)s]')
+    p.add_argument('--rwidth', type=float, default=1.0,
+                   help='Histogram bin width. [%(default)s]')
+    p.add_argument('--nbins', type=int, default=200,
+                   help='Number of histogram bins. [%(default)s]')
     return p
 
 
@@ -62,7 +66,7 @@ def main():
 
     fig, ax = plt.subplots(1, 1)
     fig.set_size_inches(12, 6)
-    ax.hist(theta, bins=200, color='indigo', rwidth=0.9)
+    ax.hist(theta, bins=args.nbins, color='indigo', rwidth=args.rwidth, alpha=0.9)
     ax.axvline(p60, color='lightpink', alpha=0.9)
     ax.axvline(p95, color='lightskyblue', alpha=0.9)
     ax.set_xlabel('Out-of-plane angle (degrees)')
