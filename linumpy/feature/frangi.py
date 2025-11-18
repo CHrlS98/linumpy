@@ -202,10 +202,16 @@ def frangi_filter(
     # from different (sigma) scales
     filtered_max = np.zeros_like(image)
     filtered_dirs = np.zeros(image.shape + (3,), dtype=np.float32)
+    best_scales = np.zeros_like(image)
 
     for sigma in sigmas:  # Filter for all sigmas.
         H_elems = hessian_matrix(image, sigma, mode=mode, cval=cval,
                                  use_gaussian_derivatives=True)
+        # scale the elements in H such that finer details are not always systematically
+        # enhanced wrt coarser structures. See issue #7711
+        # (https://github.com/scikit-image/scikit-image/issues/7711)
+        H_elems = [sigma**2 * elem for elem in H_elems]
+
         matrices = _symmetric_image(H_elems)
         eigvals, eigvecs = np.linalg.eigh(matrices)
 
@@ -248,5 +254,6 @@ def frangi_filter(
         mask = vals > filtered_max
         filtered_max[mask] = vals[mask]
         filtered_dirs[mask] = np.moveaxis(eigvecs, 0, -1)[mask]
+        best_scales[mask] = sigma
 
-    return filtered_max, filtered_dirs  # Return pixel-wise max over all sigmas.
+    return filtered_max, filtered_dirs, best_scales
