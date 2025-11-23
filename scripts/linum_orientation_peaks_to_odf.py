@@ -7,10 +7,8 @@ import argparse
 import nibabel as nib
 from nibabel.affines import apply_affine
 import numpy as np
-import itertools
-from dipy.reconst.shm import sh_to_sf_matrix, gen_dirac
+from dipy.reconst.shm import sh_to_sf_matrix
 from dipy.data import get_sphere
-from dipy.core.sphere import Sphere, HemiSphere
 
 
 SH_BASES = {
@@ -87,7 +85,10 @@ def main():
     if args.out_normalized:
         out_sh_normalized = np.zeros_like(out_sh)
 
-    for (i_ref, j_ref, k_ref) in itertools.product(*[range(in_ref.shape[i]) for i in range(len(in_ref.shape))]):
+    in_ref_mask = in_ref.get_fdata() > 0
+    indices = np.nonzero(in_ref_mask)
+
+    for (i_ref, j_ref, k_ref) in zip(*indices):
         vox_ref_initial = np.array([i_ref, j_ref, k_ref], dtype=float).reshape((3, 1))
         vox_ref_final = np.array([i_ref+1, j_ref+1, k_ref+1], dtype=float).reshape((3, 1))
 
