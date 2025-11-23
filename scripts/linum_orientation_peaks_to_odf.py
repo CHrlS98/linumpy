@@ -9,6 +9,7 @@ from nibabel.affines import apply_affine
 import numpy as np
 from dipy.reconst.shm import sh_to_sf_matrix
 from dipy.data import get_sphere
+from dipy.core.sphere import Sphere
 
 
 SH_BASES = {
