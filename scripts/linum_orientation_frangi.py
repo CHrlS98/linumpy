@@ -67,7 +67,7 @@ def main():
     nib.save(nib.Nifti1Image(direction.astype(np.float32), in_im.affine),
              f'{args.out_prefix}_direction.nii.gz')
     nib.save(nib.Nifti1Image(rgb.astype(np.uint8), in_im.affine),
-             f'{args.out_prefix}rgb.nii.gz')
+             f'{args.out_prefix}_rgb.nii.gz')
     nib.save(nib.Nifti1Image(prob.astype(np.float32), in_im.affine),
              f'{args.out_prefix}_prob.nii.gz')
 

@@ -200,9 +200,9 @@ def frangi_filter(
 
     # Generate empty array for storing maximum value
     # from different (sigma) scales
-    filtered_max = np.zeros_like(image)
+    filtered_max = np.zeros_like(image, dtype=np.float32)
     filtered_dirs = np.zeros(image.shape + (3,), dtype=np.float32)
-    best_scales = np.zeros_like(image)
+    best_scales = np.zeros_like(image, dtype=np.float32)
 
     for sigma in sigmas:  # Filter for all sigmas.
         H_elems = hessian_matrix(image, sigma, mode=mode, cval=cval,
