@@ -45,7 +45,7 @@ def main():
     args = parser.parse_args()
 
     in_im = nib.load(args.in_image)
-    in_data = in_im.get_fdata()
+    in_data = in_im.get_fdata().astype(np.float32)
 
     scales = np.linspace(args.scale_range[0], args.scale_range[1], args.n_scales)
 
