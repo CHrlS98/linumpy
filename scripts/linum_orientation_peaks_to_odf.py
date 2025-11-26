@@ -128,10 +128,12 @@ def main():
             continue
         current_directions = current_directions[current_dirnorms > 0]
         current_directions = current_directions / current_dirnorms[current_dirnorms > 0].reshape((-1, 1))
+        # normalize by the number of elements
+        n_elements = current_directions.shape[0]
         sphere = Sphere(xyz=current_directions)
 
         current_weights = np.reshape(current_weights, (-1,))
-        sf = current_weights[current_dirnorms > 0]
+        sf = current_weights[current_dirnorms > 0] / n_elements
 
         dirac_sh_coeffs = sh_to_sf_matrix(sphere, basis_type=basis_type,
                                           sh_order_max=args.sh_order_max,
