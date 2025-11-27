@@ -33,7 +33,7 @@ def _build_arg_parser():
                         'maximum Hessian norm.')
     p.add_argument('--scale_range', nargs=2, type=float, default=[1, 10],
                    help='Range of sigma used. [%(default)s]')
-    p.add_argument('--n_scales', type=int, default=10,
+    p.add_argument('--n_scales', type=int, default=4,
                    help='Number of scales. Must be greater than 1. [%(default)s]')
     p.add_argument('--use_skimage', action='store_true',
                    help='Use scikit-image implementation for Frangi filters.')
@@ -51,15 +51,12 @@ def main():
 
     if args.use_skimage:
         prob, direction, best_scales = frangi_skimage(in_data, sigmas=scales, alpha=args.alpha,
-                                         beta=args.beta, gamma=args.gamma,
-                                         black_ridges=False)
+                                                      beta=args.beta, gamma=args.gamma,
+                                                      black_ridges=False)
         nib.save(nib.Nifti1Image(best_scales.astype(np.float32), in_im.affine),
                  f'{args.out_prefix}_scales.nii.gz')
     else:
         prob, direction = frangi_foa3d(in_data, scales, args.alpha, args.beta, args.gamma)
-
-    # scale by vesselness probability
-    direction = direction * prob[..., None]
 
     # Generate RGB map
     rgb = np.abs(direction) * 255
