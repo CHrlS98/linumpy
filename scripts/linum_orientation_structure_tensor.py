@@ -55,7 +55,7 @@ def main():
     pdir = evecs_full[..., 0]
 
     nib.save(nib.Nifti1Image(pdir.astype(np.float32), in_im.affine), args.out_pdir)
-    if args.out_eval is not None:
+    if args.out_evals is not None:
         nib.save(nib.Nifti1Image(evals_full.astype(np.float32), in_im.affine),  args.out_evals)
 
 
