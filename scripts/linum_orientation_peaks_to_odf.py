@@ -26,7 +26,7 @@ def _build_arg_parser():
     p.add_argument('in_image',
                    help='Input peaks nifti image.')
     p.add_argument('in_reference',
-                   help='Reference image for estimating hist-FOD.')
+                   help='Reference image for estimating hist-FOD. \nOnly non-zero voxels will be evaluated.')
     p.add_argument('out_sh',
                    help='Output spherical harmonics (hist-FOD) image.')
 
@@ -86,7 +86,7 @@ def main():
     if args.out_normalized:
         out_sh_normalized = np.zeros_like(out_sh)
 
-    in_ref_mask = in_ref.get_fdata() > 0
+    in_ref_mask = in_ref.get_fdata() > args.threshold
     indices = np.nonzero(in_ref_mask)
 
     for (i_ref, j_ref, k_ref) in zip(*indices):
@@ -119,6 +119,7 @@ def main():
                                   vox_im_initial[1]:vox_im_final[1],
                                   vox_im_initial[2]:vox_im_final[2]]
         current_directions = np.reshape(current_directions, (-1, 3))
+        n_elements = len(current_directions)  # size of region for estimating ODF
 
         # remove null directions and normalize remaining directions
         current_dirnorms = np.linalg.norm(current_directions, axis=-1)
@@ -128,8 +129,8 @@ def main():
             continue
         current_directions = current_directions[current_dirnorms > 0]
         current_directions = current_directions / current_dirnorms[current_dirnorms > 0].reshape((-1, 1))
-        # normalize by the number of elements
-        n_elements = current_directions.shape[0]
+
+        # create sphere containing directions present at location
         sphere = Sphere(xyz=current_directions)
 
         current_weights = np.reshape(current_weights, (-1,))
