@@ -15,7 +15,7 @@ import numpy as np
 
 
 def _build_arg_parser():
-    p = argparse.ArgumentParser(description='__doc__',
+    p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawTextHelpFormatter)
     p.add_argument('in_image',
                    help='Input image.')

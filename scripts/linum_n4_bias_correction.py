@@ -21,6 +21,8 @@ def _build_arg_parser():
 
     p.add_argument('--level', type=int, default=1,
                    help='Level onto which the bias field is estimated. [%(default)s]')
+    p.add_argument('--control_points', type=int, nargs=3, default=[3, 3, 8],
+                   help='Number of control points along each axis %(default)s.')
     return p
 
 
@@ -42,7 +44,7 @@ def main():
 
     # More control points along the slicing axis
     corrector.SetSplineOrder(2)
-    corrector.SetNumberOfControlPoints([3, 3, 8])
+    corrector.SetNumberOfControlPoints(args.control_points)
     corrector.SetMaximumNumberOfIterations([50]*numberFittingLevels)
     corrector.Execute(inputImage, maskImage)
 
