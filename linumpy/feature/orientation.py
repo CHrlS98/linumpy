@@ -3,6 +3,7 @@ import logging
 from functools import partial
 from itertools import product
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import shutil
 
 from dipy.data import get_sphere
 from dipy.reconst.shm import sh_to_sf_matrix, sph_harm_ind_list
@@ -11,11 +12,13 @@ from scipy.ndimage import correlate
 import numpy as np
 from tqdm import tqdm
 import zarr
+from linumpy.io.zarr import create_tempstore
 
 
 G_RESPONSE_KEY = "G_RESPONSE"
 H_RESPONSE_KEY = "H_RESPONSE"
 Q_RESPONSE_KEY = "Q_RESPONSE"
+Q_RESPONSE_SH_KEY = "Q_RESPONSE_SH"
 G_FILTERED_BASE_KEY = "G"
 H_FILTERED_BASE_KEY = "H"
 ODF_SH_KEY = "ODF_SH"
@@ -83,7 +86,7 @@ def _kappa_fct(alpha, beta, gamma, coeff=1.0, pow_alpha=0.0,
 def equalize_filter(wfilter):
     sum_pos = np.sum(wfilter[wfilter > 0])
     sum_neg = np.sum(np.abs(wfilter[wfilter < 0]))
-    wfilter_eq = wfilter
+    wfilter_eq = wfilter.copy()
     wfilter_eq[wfilter < 0] = wfilter[wfilter < 0] / sum_neg * sum_pos
     return wfilter_eq
 
@@ -119,19 +122,20 @@ class Steerable4thOrderGaussianQuadratureFilter():
     :type num_processes: int
     :param num_processes: Number of processes.
     """
-    def __init__(self, image, halfwidth, sphere_name, sh_order_max,
-                 mode, chunk_shape, num_processes):
-        argtol = 3.0
+    def __init__(self, image, halfwidth, truncate, sphere_name, sh_order_max,
+                 sh_basis, is_legacy, mode, chunk_shape, num_processes):
+        argtol = truncate
         samples = np.linspace(0, argtol, halfwidth+1)
         samples = np.append(-samples[:0:-1], samples)
         self.image_shape = image.shape
         self.samples = samples
-        self.n_coeffs = int((sh_order_max + 2) * (sh_order_max + 1)) / 2
+        self.n_coeffs = int((sh_order_max + 2) * (sh_order_max + 1) / 2)
         _, l = sph_harm_ind_list(sh_order_max)
         self.FRT = np.diag(2.0*np.pi*eval_legendre(l, 0))
 
-        sphere = get_sphere(sphere_name)
-        _, self.b_inv = sh_to_sf_matrix(sphere, sh_order_max)
+        sphere = get_sphere(name=sphere_name)
+        self.b, self.b_inv = sh_to_sf_matrix(sphere, sh_order_max=sh_order_max,
+                                        basis_type=sh_basis, legacy=is_legacy)
         self.directions = sphere.vertices
         self.num_processes = num_processes
 
@@ -157,7 +161,7 @@ class Steerable4thOrderGaussianQuadratureFilter():
         self._h4_kappas = []
 
         # store intermediate files in temp zarr file
-        self.zarr_store = zarr.TempStore()
+        self.zarr_store = create_tempstore()
         self.zarr_root = zarr.open(self.zarr_store, mode='w')
 
         self.chunkshape = chunk_shape
@@ -173,20 +177,16 @@ class Steerable4thOrderGaussianQuadratureFilter():
             self._g4_kappas.append(_kappa)
             data = convolve_with_bank(
                 image, _filters, self._N_2Dto3D * self._sampling_delta, mode)
-            self.zarr_root.array(G_key(it), data[..., None],
-                                 chunks=self.chunkshape[:3] + (1,),
-                                 dtype=np.float32,
-                                 write_empty_chunks=False)
+            self.zarr_root.create_array(G_key(it), data=data[..., None].astype(np.float32),
+                                        chunks=self.chunkshape[:3] + (1,))
 
         for it, _h_func in enumerate(tqdm(self._h4_funcs_list)):
             _kappa, _filters = _h_func(samples)
             self._h4_kappas.append(_kappa)
             data = convolve_with_bank(
                 image, _filters, self._N_2Dto3D * self._sampling_delta, mode)
-            self.zarr_root.array(H_key(it), data[..., None],
-                                 chunks=self.chunkshape[:3] + (1,),
-                                 dtype=np.float32,
-                                 write_empty_chunks=False)
+            self.zarr_root.create_array(H_key(it), data=data[..., None].astype(np.float32),
+                                        chunks=self.chunkshape[:3] + (1,))
 
     def compute_odf_sh(self):
         """
@@ -196,10 +196,13 @@ class Steerable4thOrderGaussianQuadratureFilter():
         :return out_zarr: Zarr array containing SH coefficients.
         """
         logging.info('Compute quadrature response')
-        self.zarr_root.zeros(Q_RESPONSE_KEY,
-                             shape=self.image_shape + (len(self.directions),),
-                             chunks=self.chunkshape, dtype=np.float32)
-        out_zarr = self.zarr_root.zeros(ODF_SH_KEY,
+        qresponse = self.zarr_root.zeros(name=Q_RESPONSE_KEY,
+                                         shape=self.image_shape + (len(self.directions),),
+                                         chunks=self.chunkshape, dtype=np.float32)
+        quadrature_sh = self.zarr_root.zeros(name=Q_RESPONSE_SH_KEY,
+                                             shape=self.image_shape + (self.n_coeffs,),
+                                             chunks=self.chunkshape, dtype=np.float32)
+        out_zarr = self.zarr_root.zeros(name=ODF_SH_KEY,
                                         shape=self.image_shape + (self.n_coeffs,),
                                         chunks=self.chunkshape, dtype=np.float32)
 
@@ -212,10 +215,11 @@ class Steerable4thOrderGaussianQuadratureFilter():
                 futures.append(executor.submit(self._sh_from_quadrature_response, i, j, k))
             for f in as_completed(futures):
                 f.result()  # this step for throwing exceptions in main thread
-        return out_zarr
+
+        return out_zarr, quadrature_sh
 
     def _compute_G_response(self):
-        out_zarr = self.zarr_root.zeros(G_RESPONSE_KEY,
+        out_zarr = self.zarr_root.zeros(name=G_RESPONSE_KEY,
                                         shape=self.image_shape + (len(self.directions),),
                                         chunks=self.chunkshape, dtype=np.float32)
 
@@ -247,7 +251,7 @@ class Steerable4thOrderGaussianQuadratureFilter():
         return out_zarr
 
     def _compute_H_response(self):
-        out_zarr = self.zarr_root.zeros(H_RESPONSE_KEY,
+        out_zarr = self.zarr_root.zeros(name=H_RESPONSE_KEY,
                                         shape=self.image_shape + (len(self.directions),),
                                         chunks=self.chunkshape, dtype=np.float32)
 
@@ -291,14 +295,25 @@ class Steerable4thOrderGaussianQuadratureFilter():
         g_response = self.zarr_root[G_RESPONSE_KEY]
         h_response = self.zarr_root[H_RESPONSE_KEY]
         q_response = self.zarr_root[Q_RESPONSE_KEY]
+        q_response_sh = self.zarr_root[Q_RESPONSE_SH_KEY]
         odf_sh = self.zarr_root[ODF_SH_KEY]
         q_response.blocks[i, j, k] =\
             g_response.blocks[i, j, k] + h_response.blocks[i, j, k]
 
-        odf_sh.blocks[i, j, k] = np.asarray(
-            [e.dot(self.b_inv) for e in q_response.blocks[i, j, k]]
+        q_response_ijk = q_response.blocks[i, j, k]
+
+        q_response_sh.blocks[i, j, k] = np.asarray(
+            [e.dot(self.b_inv) for e in q_response_ijk]
         )
-        odf_sh.blocks[i, j, k] = odf_sh.blocks[i, j, k].dot(self.FRT)
+        odf_sh.blocks[i, j, k] = q_response_sh.blocks[i, j, k].dot(self.FRT)
+
+        # rescale between 0 and maximum value
+        sf = odf_sh.blocks[i, j, k].dot(self.b)
+        sf_max = np.max(sf, axis=-1)
+        sf_min = np.min(sf, axis=-1)
+        sf_range = sf_max - sf_min
+        sf[sf_range > 0] = (sf[sf_range > 0] - sf_min[sf_range > 0].reshape((-1, 1))) / sf_range[sf_range > 0].reshape((-1, 1)) * sf_max[sf_range > 0].reshape((-1, 1))
+        odf_sh.blocks[i, j, k] = sf.dot(self.b_inv)
 
     def _g4a(self, r):
         kappa = partial(_kappa_fct, pow_gamma=4)
