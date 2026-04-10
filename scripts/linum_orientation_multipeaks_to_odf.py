@@ -113,8 +113,8 @@ def main():
                                                  legacy=legacy, return_inv=True)
 
     ref_peaks_im = nib.load(args.in_peaks[0])
-    peaks = ref_peaks_im.get_fdata()
-    certainty = np.ones(peaks.shape[:-1])
+    peaks = ref_peaks_im.get_fdata().astype(np.float32)  # force float32 to save memory
+    certainty = np.ones(peaks.shape[:-1], dtype=np.float32)
 
     out_sh = np.zeros(ref_peaks_im.shape[:-1] + (sh_to_sf_mat.shape[0],),
                       dtype=np.float32)
