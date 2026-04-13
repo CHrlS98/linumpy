@@ -83,11 +83,11 @@ def generate_apodized_delta(sh_order_max, basis_type, legacy, reg=1000, f=0.1):
     print(f'Converged in {n} iterations.')
 
     m_list, l_list = sph_harm_ind_list(sh_order_max)
-    kern = np.zeros(int((sh_order_max+1)*(sh_order_max+2)//2))
+    kern = np.zeros(int((sh_order_max+1)*(sh_order_max+2)//2), dtype=np.float32)
     rh = sh_to_rh(p_n.flatten(), m_list, l_list)
     for i, l in enumerate(np.arange(sh_order_max+1, step=2)):
         kern[l_list == l] = rh[i]
-    return kern
+    return kern  # return as float32 to reduce memory usage
 
 
 def main():
@@ -108,16 +108,18 @@ def main():
         apodize_kernel = generate_apodized_delta(args.sh_order_max, basis_type, legacy)
 
     sphere = hemi_icosahedron.subdivide(n=4)
-    sh_to_sf_mat, sf_to_sh_mat = sh_to_sf_matrix(sphere, sh_order_max=args.sh_order_max,
-                                                 basis_type=basis_type,
-                                                 legacy=legacy, return_inv=True)
+    sh_to_sf_mat = sh_to_sf_matrix(sphere, sh_order_max=args.sh_order_max,
+                                   basis_type=basis_type, legacy=legacy,
+                                   return_inv=False).astype(np.float32)
 
     ref_peaks_im = nib.load(args.in_peaks[0])
     peaks = ref_peaks_im.get_fdata().astype(np.float32)  # force float32 to save memory
     certainty = np.ones(peaks.shape[:-1], dtype=np.float32)
 
-    out_sh = np.zeros(ref_peaks_im.shape[:-1] + (sh_to_sf_mat.shape[0],),
-                      dtype=np.float32)
+    # numpy.zeros does not actually allocate memory until values are assigned.
+    out_sh = np.zeros(ref_peaks_im.shape[:-1] + (sh_to_sf_mat.shape[0],), dtype=np.float32)
+    out_sh[:] = 0  # force allocation of memory
+
     certainty_sums = np.zeros(ref_peaks_im.shape[:-1], dtype=np.float32)
 
     for peak_id in range(len(args.in_peaks)):
@@ -150,6 +152,7 @@ def main():
             max_dot[update] = dot[update]
             peaks1d_to_sph_ind[update] = vert_idx
 
+        # THIS LINE IS VERY MEMORY INTENSIVE: OOM ON LARGE IMAGES
         sh = sh_to_sf_mat.T[peaks1d_to_sph_ind]
         if apodize_kernel is not None:
             sh = sh * apodize_kernel
