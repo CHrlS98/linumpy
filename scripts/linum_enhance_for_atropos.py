@@ -11,6 +11,7 @@ from skimage.exposure import equalize_adapthist
 def _build_arg_parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('in_oct', help='Input oct image.')
+    p.add_argument('in_amba', help='Input amba template.')
     p.add_argument('in_mask', help='Input brain mask.')
     p.add_argument('out_image', help='Output nifti image.')
     return p
@@ -23,15 +24,25 @@ def main():
     in_oct = nib.load(args.in_oct)
     in_oct_data = in_oct.get_fdata().astype(np.float32)
 
+    in_amba = nib.load(args.in_amba)
+    in_amba_data = in_amba.get_fdata().astype(np.float32)
+
     in_mask = nib.load(args.in_mask)
     in_mask_data = in_mask.get_fdata().astype(np.float32)
 
     # rescale both OCT and AMBA between 0 and 1
     in_oct_data = (in_oct_data - in_oct_data.min()) / (in_oct_data.max() - in_oct_data.min())
+    in_amba_data = (in_amba_data - in_amba_data.min()) / (in_amba_data.max() - in_amba_data.min())
 
     # CLAHE equalization of OCT image
     out_data = equalize_adapthist(in_oct_data, (25, 25, 25), clip_limit=0.01)
 
+    # Trickshot to enhance WM signal using prior from AMBA template
+    data_sum = out_data + in_amba_data
+    mask = (data_sum > 1e-2) & (in_mask_data > 0)
+    out_data[mask] = out_data[mask] / data_sum[mask]
+
+    # mask with brain mask
     out_data = out_data * in_mask_data
 
     nib.save(nib.Nifti1Image(out_data.astype(np.float32), in_oct.affine), args.out_image)
