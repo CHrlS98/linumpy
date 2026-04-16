@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Offline screenshot of a 3D volume. This is useful for quickly visualizing the data without
-needing to open a viewer. The screenshot is taken along the three orthogonal planes
-intersecting at the center of the volume by default, but the user can specify the slice
-indices along each axis. Supports nifti and .ome.zarr files as input.
+Offline screenshot of a 3D volume. The screenshot is taken along the three
+orthogonal planes intersecting at the center of the volume by default, but
+the user can specify the slice indices along each axis. Supports nifti and
+.ome.zarr files as input.
 """
 import argparse
 from linumpy.io.zarr import read_omezarr
