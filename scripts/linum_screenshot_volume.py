@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-
+Offline screenshot of a 3D volume. This is useful for quickly visualizing the data without
+needing to open a viewer. The screenshot is taken along the three orthogonal planes
+intersecting at the center of the volume by default, but the user can specify the slice
+indices along each axis. Supports nifti and .ome.zarr files as input.
 """
 import argparse
 from linumpy.io.zarr import read_omezarr
@@ -16,8 +19,8 @@ import matplotlib.pyplot as plt
 def _build_arg_parser():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawTextHelpFormatter)
-    p.add_argument("in_zarr",
-                   help="Full path to a zarr file.")
+    p.add_argument("in_data",
+                   help="Full path to a zarr or nifti file.")
     p.add_argument("out_figure",
                    help="Full path to the output figure")
     p.add_argument('--z_slice', type=int,
@@ -33,13 +36,12 @@ def main():
     parser = _build_arg_parser()
     args = parser.parse_args()
 
-    # TODO: Rename to screenshot_volume
-    if '.ome.zarr' in args.in_zarr:
-        image, _ = read_omezarr(args.in_zarr)
-    elif '.nii' in args.in_zarr:
-        image = nib.load(args.in_zarr).get_fdata()
+    if '.ome.zarr' in args.in_data:
+        image, _ = read_omezarr(args.in_data)
+    elif '.nii' in args.in_data:
+        image = nib.load(args.in_data).get_fdata()
     else:
-        parser.error(f'File type not supported: {args.in_zarr}')
+        parser.error(f'File type not supported: {args.in_data}')
 
     z_slice = args.z_slice if args.z_slice is not None else image.shape[0]//2
     x_slice = args.x_slice if args.x_slice is not None else image.shape[1]//2
