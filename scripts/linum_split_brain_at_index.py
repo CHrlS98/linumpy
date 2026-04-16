@@ -29,7 +29,6 @@ def main():
     in_image = nib.load(args.in_image)
     image_until = in_image.slicer[:args.index]
     nib.save(image_until, args.out_until)
-    del image_until  # free memory before loading the second half of the image
 
     image_from = in_image.slicer[args.index:]
     nib.save(image_from, args.out_from)

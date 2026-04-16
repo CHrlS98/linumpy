@@ -47,6 +47,23 @@ def _build_arg_parser():
     return p
 
 
+def apply_transform(ref_index, in_ref, affine_im_inv, in_im):
+    i_ref, j_ref, k_ref = [i - 0.5 for i in ref_index]
+    vox_ref_initial = np.array([i_ref, j_ref, k_ref], dtype=float).reshape((3, 1))
+    vox_ref_final = np.array([i_ref+1, j_ref+1, k_ref+1], dtype=float).reshape((3, 1))
+
+    world_ref_initial = apply_affine(in_ref.affine, vox_ref_initial.reshape((1, 3)))
+    world_ref_final = apply_affine(in_ref.affine, vox_ref_final.reshape((1, 3)))
+
+    vox_im_initial = apply_affine(affine_im_inv, world_ref_initial) + 0.5
+    vox_im_final = apply_affine(affine_im_inv, world_ref_final) + 0.5
+
+    vox_im_initial = np.clip(vox_im_initial, 0, np.array(in_im.shape[:3]).reshape((1, 3))).astype(int)
+    vox_im_final = np.clip(vox_im_final, 0, np.array(in_im.shape[:3]).reshape((1, 3))).astype(int)
+
+    return vox_im_initial.flatten(), vox_im_final.flatten()
+
+
 def main():
     parser = _build_arg_parser()
     args = parser.parse_args()
@@ -79,8 +96,9 @@ def main():
 
     sf_sphere = get_sphere(name='repulsion200')
     basis_type, legacy = SH_BASES[args.sh_basis]
-    B_sphere, _ = sh_to_sf_matrix(sf_sphere, basis_type=basis_type, sh_order_max=args.sh_order_max,
-                                  legacy=legacy, return_inv=True, smooth=0.0001)
+    B_sphere, _ = sh_to_sf_matrix(sf_sphere, basis_type=basis_type,
+                                  sh_order_max=args.sh_order_max,
+                                  legacy=legacy, return_inv=True)
 
     out_sh = np.zeros(in_ref.shape + (B_sphere.shape[0],), dtype=np.float32)
     if args.out_normalized:
@@ -90,25 +108,8 @@ def main():
     indices = np.nonzero(in_ref_mask)
 
     for (i_ref, j_ref, k_ref) in zip(*indices):
-        vox_ref_initial = np.array([i_ref, j_ref, k_ref], dtype=float).reshape((3, 1))
-        vox_ref_final = np.array([i_ref+1, j_ref+1, k_ref+1], dtype=float).reshape((3, 1))
-
-        world_ref_initial = apply_affine(in_ref.affine, vox_ref_initial.reshape((1, 3)))
-        world_ref_final = apply_affine(in_ref.affine, vox_ref_final.reshape((1, 3)))
-
-        vox_im_initial = apply_affine(affine_im_inv, world_ref_initial)
-        vox_im_final = apply_affine(affine_im_inv, world_ref_final)
-
-        # nearest neighbour
-        vox_im_initial = np.floor(vox_im_initial).astype(int).squeeze()
-        vox_im_final = np.floor(vox_im_final).astype(int).squeeze()
-
-        # test if we are inside the image
-        if np.any(vox_im_initial < 0) or np.any(vox_im_final) < 0:
-            continue
-        if np.any(vox_im_initial > np.reshape(in_im.shape[:3], vox_im_initial.shape)) or\
-            np.any(vox_im_final > np.reshape(in_im.shape[:3], vox_im_final.shape)):
-            continue
+        vox_im_initial, vox_im_final = apply_transform((i_ref, j_ref, k_ref), in_ref,
+                                                       affine_im_inv, in_im)
 
         # we are inside the image domain so we can use the input
         # volume to estimate hist-FOD in reference space
