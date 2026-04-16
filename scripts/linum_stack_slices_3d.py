@@ -38,6 +38,8 @@ def _build_arg_parser():
     p.add_argument('--overlap', type=int,
                    help='Number of overlapping voxels to keep from bottom of\n'
                         'previous mosaic. By default keeps all.')
+    p.add_argument('--n_voxels_skip', type=int, default=0,
+                   help='Number of voxels to skip at the start of each volume. [%(default)s]')
     return p
 
 
@@ -139,11 +141,14 @@ def main():
     output_shape = (nz, nr, nc)
 
     output_vol = OmeZarrWriter(args.out_stack, output_shape, vol.chunks, dtype=vol.dtype)
+    vol = vol[args.n_voxels_skip:]
+
+    if args.overlap is not None:
+        vol = vol[:fixed_offsets[0]+args.overlap]
 
     if args.normalize:
         vol = normalize(vol)
-        if args.overlap is not None:
-            vol = vol[:fixed_offsets[0]+args.overlap]
+
     output_vol[:vol.shape[0]] = vol[:]
 
     # fixed_offsets[0] is where the next moving slice will start
@@ -154,9 +159,7 @@ def main():
         vol, res = read_omezarr(mosaics_sorted[i])
         composite_transform = sitk.CompositeTransform(transforms[i::-1])
         register_vol = apply_transform(vol, composite_transform)
-
-        # cropping the registered volume to make sure it fits in output_vol
-        register_vol = register_vol[:min(register_vol.shape[0], output_shape[0]-stack_offset)]
+        register_vol = register_vol[args.n_voxels_skip:]
 
         # crop the volume at next fixed offset + overlap
         if i < len(mosaics_sorted) - 1:
@@ -165,6 +168,9 @@ def main():
                 register_vol = register_vol[:next_fixed_offset+args.overlap]
         else:
             next_fixed_offset = register_vol.shape[0]
+
+        # cropping the registered volume to make sure it fits in output_vol
+        register_vol = register_vol[:min(register_vol.shape[0], output_shape[0]-stack_offset)]
 
         if args.normalize:
             register_vol = normalize(register_vol)
